@@ -125,3 +125,83 @@
 - LINE Messaging API webhook（`app/api/line/webhook/route.ts`、署名検証）。
 - `faq` / `menus` の初期データ投入。
 - 管理ダッシュボード UI ＋ 配色決定。
+
+---
+
+## フェーズ1: FAQ 応答ロジック（2026-09-04）
+
+LINE には繋がず、「問い合わせ文 → 回答文」の生成関数だけを作るフェーズ。
+
+### やったこと
+
+- 依存追加: `openai`（公式 SDK）/ `tsx`（`.ts` を直接実行して手元確認する用・dev）。
+- `lib/env.ts`: OpenAI 設定は `getServerEnv()` に混ぜず `getOpenAIEnv()` に分離
+  （`apiKey` 必須 / `model` は任意・既定 `gpt-4o-mini`）。
+  → Supabase しか使わない経路（疎通確認ページ等）が OpenAI キー未設定で落ちないように。
+- `.env.local.example`: `OPENAI_API_KEY` を「必須」に格上げ ＋ 任意の `OPENAI_MODEL` を追記。
+- `lib/openai/client.ts`: `server-only` ＋ シングルトンで OpenAI クライアントを使い回す。
+- `lib/faq/knowledge.ts`:
+  - `loadKnowledgeBase()` = `faq` 全件 ＋ 有効な `menus`（`sort_order` 昇順）を取得。
+  - `formatKnowledgeForPrompt()` = カテゴリ別の Q/A ＋ メニュー表を素朴なテキストに整形。
+  - **ベクトル検索・埋め込みは使わない**。個人店の FAQ は数十件規模なので全部
+    プロンプトに入れれば十分。埋め込みは複雑さ（別インフラ）に見合わない。
+    データが増えて限界が来たら検索方式を足す方針。
+- `lib/faq/generate-answer.ts`（このフェーズの主役）:
+  - `generateFaqAnswer(userMessage) → { answer, confidence, needsHuman }`。
+  - `gpt-4o-mini` に `response_format: { type: "json_object" }` で JSON を返させ、
+    `temperature: 0.3` で安定寄りに。confidence の基準（0.8以上=明確 /
+    0.4〜0.7=部分的 / 0.3以下=情報なし）をプロンプトに明示。
+  - JSON は zod を入れず 3 フィールドを手書きで検証（`confidence` は 0〜1 にクランプ）。
+  - **例外は握って汎用文に変換**（フェーズ0の宿題）。OpenAI エラー / パース失敗時は
+    `console.error` に詳細を残し、ユーザーには定型文 ＋ `needsHuman: true` を返す。
+- `scripts/try-answer.ts` ＋ `npm run try:answer -- "質問"`：手元での応答確認用。
+- `supabase/seed/sample_data.sql`：動作確認用の仮データ（FAQ 8件・メニュー6件、
+  冒頭で delete → insert で再実行可）。マイグレーションではない。
+
+### 詰まった点と解決策
+
+- **`server-only` を tsx から import すると即 throw**
+  （`This module cannot be imported from a Client Component module.`）。
+  → `server-only` は `package.json` の `exports` で `react-server` 条件のときだけ
+  空モジュールに解決される。Next のビルドはこの条件を立てるが、素の tsx/node は
+  立てないので「クライアントから import された」と誤検知する。
+  `try:answer` を `tsx --conditions=react-server` で実行して解決。
+  `server-only` ガード自体は Next ビルド向けの防御として残す。
+- **OpenAI キーを `getServerEnv()` に相乗りさせたら関心が混ざった**。
+  Supabase だけ使う `app/page.tsx` まで OpenAI キー必須になってしまう。
+  → `getOpenAIEnv()` に分離（`getPublicEnv` / `getServerEnv` と同じ分け方）。
+- **`json_object` モードはプロンプトに "json" の語が要る**。
+  出力形式の説明に JSON スキーマを書いているので条件は満たしている。
+
+### 学び
+
+- `.env.local` を tsx で読むのは Node の `--env-file=.env.local`（Node 20.6+）。
+  値は従来どおり `lib/env.ts` 経由で取り、`process.env` 直参照はしない。
+- confidence は**モデルの自己申告**なので厳密な指標ではない。基準をプロンプトで
+  固定してブレを減らしているだけ。将来 `conversations` に貯めて、
+  「低 confidence なのに答えている」ケースを分析して改善する余地がある。
+- プロンプトに「知識ベース」「記載」など内部語を返信に使わせない一文を足すと、
+  未知の質問への返答が「記載されておりません」→「あいにく分かりかねますので確認して
+  ご連絡いたします」と自然な接客文になった。
+
+### 動作確認（`gpt-4o-mini`・seed 投入済み）
+
+| 質問                                 | 結果                                                           |
+| ------------------------------------ | -------------------------------------------------------------- |
+| 営業時間を教えてください             | 正しい営業時間を回答 / confidence 0.9 / needsHuman false       |
+| 駐車場はありますか？（seed に無い）  | 「確認してご連絡いたします」/ confidence 0.3 / needsHuman true |
+| カットとカラー一緒だといくら・何分？ | 組み合わせFAQから回答 / confidence 0.8 / needsHuman false      |
+| `OPENAI_API_KEY` を空にして実行      | 生エラーを出さず定型文 ＋ needsHuman true / ログに詳細         |
+
+- `tsc --noEmit` / `npm run lint` / `npm run build` すべて green。`any` 不使用。
+- OpenAI キーに `NEXT_PUBLIC_` は付いていない（`git grep` で確認）。
+
+### 次フェーズ（この順番で）
+
+1. LINE Messaging API webhook（`app/api/line/webhook/route.ts`）。署名検証（`x-line-signature`）。
+   受信テキスト → `generateFaqAnswer()` → 返信。Next 16 の Route Handler 規約を
+   `node_modules/next/dist/docs/` で確認してから書く。
+2. `conversations` への会話ログ保存（`line_user_id` / 受信文 / 応答 / confidence）。
+   保存失敗で返信を止めない（ログ優先度は返信より下）。
+3. `faq` / `menus` の初期データ投入フロー（seed を実データに差し替え）。
+4. 管理ダッシュボード UI ＋ 配色決定。

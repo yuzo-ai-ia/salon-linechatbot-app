@@ -35,10 +35,10 @@ export function getPublicEnv() {
 }
 
 /**
- * サーバー専用の秘密値。クライアントバンドルには絶対に含めない。
+ * サーバー専用の秘密値（Supabase）。クライアントバンドルには絶対に含めない。
  * この関数はサーバーコード（lib/supabase/server.ts や API ルート）からのみ呼ぶこと。
  *
- * OPENAI_API_KEY / LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET は
+ * LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET は
  * 次フェーズで使うため、必要になった時点でここに追加する。
  */
 export function getServerEnv() {
@@ -47,5 +47,19 @@ export function getServerEnv() {
       "SUPABASE_SECRET_KEY",
       process.env.SUPABASE_SECRET_KEY,
     ),
+  };
+}
+
+/**
+ * OpenAI 用のサーバー専用設定。
+ * getServerEnv() とは分けている。Supabase しか使わない経路（疎通確認ページ等）が
+ * OpenAI キー未設定で落ちないようにするため（関心の分離）。
+ */
+export function getOpenAIEnv() {
+  return {
+    apiKey: required("OPENAI_API_KEY", process.env.OPENAI_API_KEY),
+    // 使うモデル。未設定ならコスト重視で gpt-4o-mini。
+    //   品質が足りなければ .env.local で OPENAI_MODEL=gpt-4o に上げる。
+    model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
   };
 }
