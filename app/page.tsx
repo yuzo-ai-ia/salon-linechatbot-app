@@ -8,6 +8,27 @@ import { getServerSupabase } from "@/lib/supabase/server";
 type HealthResult =
   { ok: true; faqCount: number } | { ok: false; message: string };
 
+// Supabase から返るエラーは経路によって形が変わる:
+//   - 通常（.throwOnError() なし）: プレーンオブジェクト { message, code, hint, details }
+//   - .throwOnError() 経由や将来のバージョン: Error を継承した PostgrestError
+// どちらでも PostgREST の code / hint / details まで拾えるようにする。
+// そのまま String() すると "[object Object]" になって原因が分からないため。
+function formatError(e: unknown): string {
+  if (!e || typeof e !== "object") return String(e);
+
+  const err = e as Record<string, unknown>;
+  const parts = [
+    typeof err.message === "string" ? err.message : null,
+    typeof err.code === "string" ? `code: ${err.code}` : null,
+    typeof err.details === "string" ? `details: ${err.details}` : null,
+    typeof err.hint === "string" ? `hint: ${err.hint}` : null,
+  ].filter((p): p is string => p !== null);
+
+  if (parts.length > 0) return parts.join("\n");
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
+
 async function checkSupabase(): Promise<HealthResult> {
   try {
     const supabase = getServerSupabase();
@@ -20,7 +41,7 @@ async function checkSupabase(): Promise<HealthResult> {
     return { ok: true, faqCount: count ?? 0 };
   } catch (e) {
     // 握りつぶさず、原因が分かるメッセージを画面に出す。
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    return { ok: false, message: formatError(e) };
   }
 }
 

@@ -16,6 +16,12 @@ create extension if not exists "pgcrypto";
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+-- search_path を空に固定する。
+--   可変のままだと、呼び出し側のスキーマ解決に依存して意図しない関数・テーブルを
+--   参照させられる余地が残る（Supabase の DB linter も function_search_path_mutable
+--   で警告する）。この関数は now()（pg_catalog、常に暗黙で先頭）しか使わないので
+--   空にして問題ない。
+set search_path = ''
 as $$
 begin
   new.updated_at = now();
@@ -126,3 +132,28 @@ create policy "menus_select_public" on public.menus
 alter table public.conversations enable row level security;
 -- ポリシーを作らない = anon / authenticated からは読み書き不可。
 --   サーバーの secret クライアント（RLS バイパス）からのみ読み書きする。
+
+-- ============================================================
+-- テーブル権限（GRANT）
+-- ============================================================
+-- Supabase の「新テーブルへの自動 GRANT」に頼らず明示する。
+--   自動付与の実体は ALTER DEFAULT PRIVILEGES で、テーブル作成者ロールが
+--   一致しているときだけ効く。Studio の SQL Editor 経由などでは発火しない
+--   ことがあり、その場合 anon も service_role も 42501 permission denied になる。
+-- なお RLS（行の制御）と GRANT（テーブル操作の制御）は別レイヤー。
+--   secret キー（service_role）は RLS はバイパスするが、テーブル権限は別途必要。
+
+-- まず anon / authenticated の権限を全撤回する。
+--   環境によっては Supabase の自動付与で GRANT ALL が付いていることがあり、
+--   それが残っていると下の targeted grant が「追加」にしかならず、
+--   書き込みや conversations 露出を GRANT 層で防げないため。
+--   （持っていない権限を revoke してもエラーにはならない＝安全に流せる）
+revoke all on public.faq, public.menus, public.conversations from anon, authenticated;
+
+-- 参照系: anon / authenticated には SELECT のみ許可（実際に返る行は上の RLS で決まる）。
+grant select on public.faq, public.menus to anon, authenticated;
+
+-- サーバー（service_role / secret キー）: 3テーブルすべてに読み書きを許可。
+grant select, insert, update, delete
+  on public.faq, public.menus, public.conversations
+  to service_role;

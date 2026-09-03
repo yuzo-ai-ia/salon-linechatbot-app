@@ -63,6 +63,62 @@
 4. `npm run dev` → `http://localhost:3000` で「✅ 環境構築OK / faq: 0 件」を確認（疎通確認）。
 5. `/code-review high`（型安全性）と `/security-review`（秘密情報の扱い）を実行。
 
+---
+
+## フェーズ0（続き）: 実 DB 疎通とレビュー（2026-09-04）
+
+### やったこと
+
+- Supabase プロジェクトを作成し、`20260903_init_schema.sql` を Studio で実行。
+  `.env.local` に実キー（Supabase URL / Publishable / Secret）を記入。
+- `npm run dev` で疎通確認 → トップページが「✅ 環境構築OK / faq 0 件」に。
+- `/code-review high` と手動セキュリティ点検を実施。指摘を反映:
+  - **`app/page.tsx` のエラー整形**: `formatError()` を追加。Supabase の
+    エラーは経路により「プレーンオブジェクト（`{message,code,hint,details}`）」
+    にも「`Error` 継承の `PostgrestError`」にもなるので、どちらでも
+    `code` / `hint` / `details` まで拾えるようにした。
+  - **マイグレーションに `REVOKE` を追加**: GRANT の前に
+    `revoke all ... from anon, authenticated` を置き、環境によって Supabase の
+    自動付与で `GRANT ALL` が残っていても targeted grant が効くようにした。
+  - **`set_updated_at` の `search_path` を空に固定**（`function_search_path_mutable`
+    警告の解消 / ハードニング）。
+- 権限を実測で確認: anon = faq/menus の SELECT のみ・書き込み 401・
+  conversations 401 / service_role = 3テーブル読み書き可。
+
+### 詰まった点と解決策
+
+- **3テーブルとも全ロールで `42501 permission denied`**。
+  → Supabase の「新テーブルへの自動 GRANT」は `ALTER DEFAULT PRIVILEGES` が実体で、
+  テーブル作成者ロールが一致するときだけ効く。Studio 経由だと発火しないことがある。
+  マイグレーションに `grant` を明示して解決。さらに defense-in-depth で `revoke` も。
+- **エラーが画面で `[object Object]`**。
+  → `.throwOnError()` なしの supabase-js は `error = JSON.parse(body)` の
+  プレーンオブジェクトを返す（`Error` ではない）ので `String(e)` が `[object Object]`
+  になっていた。`message`/`code`/`hint`/`details` を明示的に拾う整形関数で解決。
+
+### 学び
+
+- **RLS と GRANT は別レイヤー**。RLS =「どの行を返すか」、GRANT =「テーブルを
+  操作してよいか」。secret キー（service_role）は RLS はバイパスするが
+  テーブル権限は別途必要。
+- Supabase の新形式キー運用でも、権限は「自動付与に任せず SQL に明示」が安全。
+
+### レビュー結果（クリア）
+
+- `.env*` は gitignore 済み・git 履歴にも秘密情報なし。
+- `NEXT_PUBLIC_` が付くのは URL と Publishable キーのみ（Secret / OpenAI / LINE は
+  サーバー専用のまま）。
+- 秘密キーのハードコードなし。`server-only` ガードあり。`"use client"` はゼロ。
+
+### 次フェーズに持ち越す宿題（レビューで挙がった Info 項目）
+
+- **DB エラーの `hint`/`details` をエンドユーザーに返さない**。今の `app/page.tsx`
+  は環境構築の疎通確認ページなので生エラー表示で OK だが、この書き方を
+  LINE webhook / API レスポンスに持ち込まないこと。ユーザー向けは汎用メッセージ
+  ＋サーバーログに分ける。
+- **`conversations` は個人情報**（`line_user_id` ＋ 顧客メッセージ本文）。
+  アクセス制御は済。将来「保持期間」と「削除フロー」をプロダクト側で決める。
+
 ### 次フェーズ（環境構築の後）
 
 - OpenAI GPT-4o で FAQ 応答を生成するロジック（`lib/`）。
