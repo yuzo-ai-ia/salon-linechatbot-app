@@ -314,11 +314,31 @@ LINE には繋がず、「問い合わせ文 → 回答文」の生成関数だ�
 修正後、`try:webhook` を再実行して署名検証・FAQ回答生成・reply失敗時のログ出力
 （握りつぶされていないこと）を再確認済み。`tsc` / `lint` / `build` すべて green。
 
+### 実機確認（2026-09-04・完了）
+
+ngrok で `next dev`（localhost:3000）を公開し、LINE Developers Console の
+Webhook URL に登録して、スマホの LINE アプリから実際にメッセージを送って確認した。
+
+- `ngrok` は既にインストール・認証済みだったので導入手順は不要（`cloudflared` は未使用）。
+- `ngrok http 3000` → `https://xxxx.ngrok-free.dev` を Webhook URL に登録
+  （`<URL>/api/line/webhook`）→ **Console の「検証」ボタンで Success**。
+- 「応答メッセージ」をオフ・「Webhookの利用」をオンにしてから、スマホで友だち追加
+  → 「営業時間を教えてください」と送信 → **bot から正しい返信が届いた**。
+- 裏どり: dev server ログに署名検証エラー・reply失敗ログは無し（`try:webhook` の
+  ダミー `replyToken` と違い、本物の `replyToken` なので reply も一発で成功した）。
+  `conversations` にも実際の `line_user_id` で受信文・応答文・confidence 0.9 が
+  記録されていることを確認。
+- ngrok は無料枠で URL が毎回変わる一時的なものなので、確認後に停止した
+  （本番運用は別途、固定ドメインや正式なデプロイ環境が必要になる）。
+
+これで **LINE 連携（webhook 受信 → FAQ応答生成 → LINE返信 → 会話ログ保存）が
+本物の LINE を通して一通り動くことを確認できた**。フェーズ2は実質完了。
+
 ### 次フェーズ（この順番で）
 
-1. 実機確認（任意のタイミングで）: cloudflared/ngrok でトンネル → LINE Console の
-   Webhook URL に登録 → 「検証」ボタン成功 → 友だち追加してメッセージ送信。
-2. `faq` / `menus` の初期データ投入フロー（`supabase/seed/sample_data.sql` を実データに差し替え）。
-3. 管理ダッシュボード UI ＋ 配色決定。
-4. （余力があれば）`after()` による非同期化、follow イベントの挨拶、`needs_human`
-   を使った有人対応フローの検討、上記「保留」6件の対応。
+1. `faq` / `menus` の初期データ投入フロー（`supabase/seed/sample_data.sql` を実データに差し替え）。
+2. 管理ダッシュボード UI ＋ 配色決定。
+3. （余力があれば）`after()` による非同期化、follow イベントの挨拶、`needs_human`
+   を使った有人対応フローの検討、フェーズ2レビューで保留にした6件の対応。
+4. 本番デプロイ構成の検討（ngrok は一時確認用。固定URL・常時起動できる
+   ホスティング先を決める必要がある）。
