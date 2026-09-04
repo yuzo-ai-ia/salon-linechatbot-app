@@ -37,15 +37,34 @@ export function getPublicEnv() {
 /**
  * サーバー専用の秘密値（Supabase）。クライアントバンドルには絶対に含めない。
  * この関数はサーバーコード（lib/supabase/server.ts や API ルート）からのみ呼ぶこと。
- *
- * LINE_CHANNEL_ACCESS_TOKEN / LINE_CHANNEL_SECRET は
- * 次フェーズで使うため、必要になった時点でここに追加する。
  */
 export function getServerEnv() {
   return {
     supabaseSecretKey: required(
       "SUPABASE_SECRET_KEY",
       process.env.SUPABASE_SECRET_KEY,
+    ),
+  };
+}
+
+/**
+ * LINE Messaging API のサーバー専用設定。
+ * getServerEnv() / getOpenAIEnv() とは分けている。LINE を使わない経路
+ * （疎通確認ページ・try:answer など）が LINE キー未設定で落ちないようにするため。
+ *
+ * - channelSecret: webhook の署名（x-line-signature）検証に使う。
+ * - channelAccessToken: reply API を叩くときの Bearer トークン。
+ * どちらもサーバー専用。絶対に NEXT_PUBLIC_ を付けない。
+ */
+export function getLineEnv() {
+  return {
+    channelAccessToken: required(
+      "LINE_CHANNEL_ACCESS_TOKEN",
+      process.env.LINE_CHANNEL_ACCESS_TOKEN,
+    ),
+    channelSecret: required(
+      "LINE_CHANNEL_SECRET",
+      process.env.LINE_CHANNEL_SECRET,
     ),
   };
 }

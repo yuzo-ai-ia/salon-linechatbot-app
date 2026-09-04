@@ -205,3 +205,72 @@ LINE には繋がず、「問い合わせ文 → 回答文」の生成関数だ�
    保存失敗で返信を止めない（ログ優先度は返信より下）。
 3. `faq` / `menus` の初期データ投入フロー（seed を実データに差し替え）。
 4. 管理ダッシュボード UI ＋ 配色決定。
+
+---
+
+## フェーズ2: LINE 連携（2026-09-04）
+
+「LINE で受信 → `generateFaqAnswer()` → LINE へ返信」を通すフェーズ。
+あわせて会話を `conversations` に記録する。
+
+### やったこと
+
+- `lib/env.ts`: `getLineEnv()` を追加（`channelAccessToken` / `channelSecret`）。
+  `getServerEnv()` / `getOpenAIEnv()` と同じ理由で分離（LINE を使わない経路が
+  LINE キー未設定で落ちないように）。
+- `lib/line/verify-signature.ts`: `x-line-signature` の検証。**SDK は使わず自前**
+  （`node:crypto` の `createHmac` 数行 + `timingSafeEqual`）で実装。依存を増やさず
+  仕組みが見える形を優先した。
+- `lib/line/client.ts`: `replyText(replyToken, text)`。reply API への POST のみ。
+  失敗（非2xx）は握らず throw、呼び出し側でログ。
+- `lib/line/types.ts`: webhook イベントの最小限の型（テキストメッセージ用のみ）。
+- `lib/conversations/log.ts`: `logConversation()`。`conversations` へ1行 insert。
+  **絶対に throw しない**（返信よりログの優先度は下。保存失敗で webhook を落とさない）。
+- `app/api/line/webhook/route.ts`: webhook 本体。
+  - `runtime = "nodejs"`（`node:crypto` を使うため）、`dynamic = "force-dynamic"`。
+  - 生ボディ（`request.text()`）を最初に読んでから署名検証 → JSON パース。
+  - イベントは `Promise.allSettled` で処理（1件の失敗が他を巻き込まない）。
+  - **返信はインラインで await**（生成→reply→200 を順に実行）。個人店の低トラフィック
+    前提でシンプルさを優先。`after()` での非同期化は将来の改善候補として保留。
+  - 署名OKなら常に200を返す（200以外だと LINE が再送し、二重返信になるため）。
+- `scripts/try-webhook.ts` ＋ `npm run try:webhook -- "質問文"`：LINE 実機なしで
+  「署名検証 → イベント処理 → 回答生成 → conversations 保存」を通しで確認するスクリプト。
+  `--bad-signature` で署名検証失敗（401）も確認できる。
+- `.env.local.example`: LINE 2変数のコメントを「次フェーズ・空でよい」→
+  「webhook で必須」に更新。
+
+### 詰まった点と解決策
+
+- **`try:webhook` で reply API が 401 になる**。→ これは想定内。スクリプトが送る
+  `replyToken` はダミー値（LINE 実機を経由していないため）なので、LINE 側の
+  reply API は正しく拒否する。確認したいのは reply の成否ではなく「署名検証 →
+  生成 → `conversations` 保存」が通ることで、そこは 200・回答生成・DB保存まで確認できた。
+  実際の返信確認は次回、実機（トンネル + LINE Console の Webhook 検証）で行う。
+
+### 学び
+
+- **署名検証は生ボディ必須**。`request.json()` で一度パースしてしまうと元のバイト列が
+  失われ、`JSON.stringify` で再構成した文字列は空白やキー順が変わり得るので
+  署名が一致しなくなる。`request.text()` を最初に呼ぶのが鉄則。
+- **RLS / GRANT はフェーズ0で整備済みだったので、`conversations` への書き込みは
+  secret クライアントでそのまま通った**。新しいテーブル権限の心配は不要だった
+  （フェーズ0で GRANT を明示しておいた効果）。
+- LINE の webhook 検証（Console の「検証」ボタン）は `events: []` の POST を送る。
+  イベントのループが空回りして自然に 200 を返すので、特別分岐は不要。
+
+### 動作確認
+
+- `npm run try:webhook -- "営業時間を教えてください"` → **200**・回答生成・
+  `conversations` への保存まで確認済み（ユーザー実施）。
+- `tsc --noEmit` / `npm run lint` / `npm run build` すべて green。`any` 不使用。
+- `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` に `NEXT_PUBLIC_` が付いて
+  いないことを `git grep` で確認。`.env.local` はコミット対象外のまま。
+
+### 次フェーズ（この順番で）
+
+1. 実機確認（任意のタイミングで）: cloudflared/ngrok でトンネル → LINE Console の
+   Webhook URL に登録 → 「検証」ボタン成功 → 友だち追加してメッセージ送信。
+2. `faq` / `menus` の初期データ投入フロー（`supabase/seed/sample_data.sql` を実データに差し替え）。
+3. 管理ダッシュボード UI ＋ 配色決定。
+4. （余力があれば）`after()` による非同期化、follow イベントの挨拶、`needs_human`
+   を使った有人対応フローの検討。
