@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "try:answer": "tsx --conditions=react-server --env-file=.env.local scripts/try-answer.ts"
+    "try:answer": "tsx --conditions=react-server --env-file=.env.local scripts/try-answer.ts",
+    "try:webhook": "tsx --conditions=react-server --env-file=.env.local scripts/try-webhook.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.114.0",

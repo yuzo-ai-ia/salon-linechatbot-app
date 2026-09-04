@@ -205,3 +205,120 @@ LINE には繋がず、「問い合わせ文 → 回答文」の生成関数だ�
    保存失敗で返信を止めない（ログ優先度は返信より下）。
 3. `faq` / `menus` の初期データ投入フロー（seed を実データに差し替え）。
 4. 管理ダッシュボード UI ＋ 配色決定。
+
+---
+
+## フェーズ2: LINE 連携（2026-09-04）
+
+「LINE で受信 → `generateFaqAnswer()` → LINE へ返信」を通すフェーズ。
+あわせて会話を `conversations` に記録する。
+
+### やったこと
+
+- `lib/env.ts`: `getLineEnv()` を追加（`channelAccessToken` / `channelSecret`）。
+  `getServerEnv()` / `getOpenAIEnv()` と同じ理由で分離（LINE を使わない経路が
+  LINE キー未設定で落ちないように）。
+- `lib/line/verify-signature.ts`: `x-line-signature` の検証。**SDK は使わず自前**
+  （`node:crypto` の `createHmac` 数行 + `timingSafeEqual`）で実装。依存を増やさず
+  仕組みが見える形を優先した。
+- `lib/line/client.ts`: `replyText(replyToken, text)`。reply API への POST のみ。
+  失敗（非2xx）は握らず throw、呼び出し側でログ。
+- `lib/line/types.ts`: webhook イベントの最小限の型（テキストメッセージ用のみ）。
+- `lib/conversations/log.ts`: `logConversation()`。`conversations` へ1行 insert。
+  **絶対に throw しない**（返信よりログの優先度は下。保存失敗で webhook を落とさない）。
+- `app/api/line/webhook/route.ts`: webhook 本体。
+  - `runtime = "nodejs"`（`node:crypto` を使うため）、`dynamic = "force-dynamic"`。
+  - 生ボディ（`request.text()`）を最初に読んでから署名検証 → JSON パース。
+  - イベントは `Promise.allSettled` で処理（1件の失敗が他を巻き込まない）。
+  - **返信はインラインで await**（生成→reply→200 を順に実行）。個人店の低トラフィック
+    前提でシンプルさを優先。`after()` での非同期化は将来の改善候補として保留。
+  - 署名OKなら常に200を返す（200以外だと LINE が再送し、二重返信になるため）。
+- `scripts/try-webhook.ts` ＋ `npm run try:webhook -- "質問文"`：LINE 実機なしで
+  「署名検証 → イベント処理 → 回答生成 → conversations 保存」を通しで確認するスクリプト。
+  `--bad-signature` で署名検証失敗（401）も確認できる。
+- `.env.local.example`: LINE 2変数のコメントを「次フェーズ・空でよい」→
+  「webhook で必須」に更新。
+
+### 詰まった点と解決策
+
+- **`try:webhook` で reply API が 401 になる**。→ これは想定内。スクリプトが送る
+  `replyToken` はダミー値（LINE 実機を経由していないため）なので、LINE 側の
+  reply API は正しく拒否する。確認したいのは reply の成否ではなく「署名検証 →
+  生成 → `conversations` 保存」が通ることで、そこは 200・回答生成・DB保存まで確認できた。
+  実際の返信確認は次回、実機（トンネル + LINE Console の Webhook 検証）で行う。
+
+### 学び
+
+- **署名検証は生ボディ必須**。`request.json()` で一度パースしてしまうと元のバイト列が
+  失われ、`JSON.stringify` で再構成した文字列は空白やキー順が変わり得るので
+  署名が一致しなくなる。`request.text()` を最初に呼ぶのが鉄則。
+- **RLS / GRANT はフェーズ0で整備済みだったので、`conversations` への書き込みは
+  secret クライアントでそのまま通った**。新しいテーブル権限の心配は不要だった
+  （フェーズ0で GRANT を明示しておいた効果）。
+- LINE の webhook 検証（Console の「検証」ボタン）は `events: []` の POST を送る。
+  イベントのループが空回りして自然に 200 を返すので、特別分岐は不要。
+
+### 動作確認
+
+- `npm run try:webhook -- "営業時間を教えてください"` → **200**・回答生成・
+  `conversations` への保存まで確認済み（ユーザー実施）。
+- `tsc --noEmit` / `npm run lint` / `npm run build` すべて green。`any` 不使用。
+- `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` に `NEXT_PUBLIC_` が付いて
+  いないことを `git grep` で確認。`.env.local` はコミット対象外のまま。
+
+### `/code-review high` の指摘と対応
+
+コミット後に `/code-review high` を実行。10件の指摘が出て（すべて CONFIRMED）、
+実際のバグ2件と保守性2件を修正、残り6件は影響が小さいため次の宿題として保留。
+
+**直したもの:**
+
+- **`getLineEnv()` が署名検証の前に `channelAccessToken` も要求していた**
+  （`app/api/line/webhook/route.ts`）。`LINE_CHANNEL_ACCESS_TOKEN` が未設定/失効
+  していると、正しい署名の webhook まで検証前に throw → 500 になり、
+  「正常な署名には常に200を返す」という前提が崩れる不具合だった。
+  → `getLineEnv()` を `getLineChannelSecret()` / `getLineChannelAccessToken()` に
+  分割（`lib/env.ts`）。署名検証は secret だけ、reply 送信は token だけを見るように
+  し、無関係な2つの設定値が互いの失敗を巻き込まないようにした。
+- **reply API のエラーレスポンス読み取り失敗を握りつぶしていた**
+  （`lib/line/client.ts`）。`res.text().catch(() => "")` でログを残さずに空文字化
+  していたのを、catch 内で `console.error` するよう修正（CLAUDE.md の「エラーを
+  握りつぶさない」に合わせる）。
+- **署名計算ロジックが本番コードとテストスクリプトで重複していた**。
+  `lib/line/verify-signature.ts` に `computeLineSignature()` を切り出し、
+  `scripts/try-webhook.ts` もそれを使うように変更。将来どちらかだけ直し忘れて
+  `try:webhook` が気づかれずに壊れる、という事態を防ぐ。
+- **`conversations.bot_response` のコメントが実態と食い違っていた**
+  （`lib/conversations/log.ts`）。「生成失敗時は null」と書いていたが
+  `generateFaqAnswer()` は null を返さない設計。加えて reply 送信が失敗しても
+  「生成した文面」がそのまま記録される（＝配信の成否は区別できない）ことを
+  コメントで明記した。
+
+**保留（次の宿題）:**
+
+- webhook 1件あたりのイベント処理に同時実行数の上限が無い（LINE が複数イベントを
+  まとめて送る場合に無制限に並列実行される）。低トラフィックな個人店では実害が薄い。
+- `text.slice(0, 5000)` がサロゲートペア（絵文字等）の境界を割る可能性
+  （UTF-16 コードユニット基準の切り詰めのため）。回答は2〜3文の指示済みで
+  5000字に達すること自体がまず無い。
+- `replyText` → `logConversation` が直列 await（並列化すればレイテンシは縮むが、
+  将来「配信成否を記録する」設計にするなら順序が意味を持つため保留）。
+- `getLineChannelSecret()` / `getLineChannelAccessToken()` に
+  `getServerSupabase()` 等と同様のキャッシュが無い（呼び出しごとに再検証、
+  イベント数分だけ地味に無駄）。
+- `LineEvent.type` / `message.type` が素の `string`（タイポをコンパイル時に
+  検知できない）。
+- `try-webhook.ts` の引数パースが最初の非フラグ引数しか拾わない（開発用スクリプト
+  のみに影響）。
+
+修正後、`try:webhook` を再実行して署名検証・FAQ回答生成・reply失敗時のログ出力
+（握りつぶされていないこと）を再確認済み。`tsc` / `lint` / `build` すべて green。
+
+### 次フェーズ（この順番で）
+
+1. 実機確認（任意のタイミングで）: cloudflared/ngrok でトンネル → LINE Console の
+   Webhook URL に登録 → 「検証」ボタン成功 → 友だち追加してメッセージ送信。
+2. `faq` / `menus` の初期データ投入フロー（`supabase/seed/sample_data.sql` を実データに差し替え）。
+3. 管理ダッシュボード UI ＋ 配色決定。
+4. （余力があれば）`after()` による非同期化、follow イベントの挨拶、`needs_human`
+   を使った有人対応フローの検討、上記「保留」6件の対応。
