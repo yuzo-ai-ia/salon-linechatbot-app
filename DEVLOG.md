@@ -342,3 +342,82 @@ Webhook URL に登録して、スマホの LINE アプリから実際にメッ�
    を使った有人対応フローの検討、フェーズ2レビューで保留にした6件の対応。
 4. 本番デプロイ構成の検討（ngrok は一時確認用。固定URL・常時起動できる
    ホスティング先を決める必要がある）。
+
+---
+
+## フェーズ3: 管理ダッシュボード（FAQ CRUD）（2026-09-04）
+
+管理ダッシュボードUIの最初の1機能として、オーナーが自分でFAQを追加・編集・削除
+できる画面（`/admin/faq`）を作るフェーズ。クライアントはスマホ操作前提。
+
+### やったこと
+
+- **認証（簡易パスワード方式）**: アプリに認証機構が無かったため今回追加。
+  DB・セッションストアは使わず、`ADMIN_PASSWORD`を鍵にしたHMAC署名付きCookieのみで
+  ログイン状態を判定する設計にした。
+  - `lib/admin/session.ts`: `createAdminSessionToken()` / `verifyAdminSessionToken()`
+    / `verifyAdminPassword()`。`lib/line/verify-signature.ts`と同じ発想
+    （`node:crypto`の`createHmac`+`timingSafeEqual`）。
+  - `lib/admin/guard.ts`: `requireAdminSession()`。Server Components/Actions側の
+    ログインチェック（`server-only`あり）。
+  - `proxy.ts`（**`middleware.ts`ではない**）: `/admin/*`への未ログインアクセスを
+    `/admin/login`へリダイレクトするルーティング入口のガード。
+  - `getAdminEnv()`を`lib/env.ts`に追加（既存の`getOpenAIEnv()`等と同じ分離パターン）。
+- **FAQデータ層**: `lib/faq/categories.ts`（カテゴリ↔日本語ラベル対応表、6値固定）、
+  `lib/faq/admin.ts`（`listFaqs`/`getFaqById`/`createFaq`/`updateFaq`/`deleteFaq`、
+  `getServerSupabase()`経由）。
+- **画面・Server Actions**（このプロジェクト初のServer Actions採用）:
+  `/admin/login`、`/admin/faq`（一覧）、`/admin/faq/new`、`/admin/faq/[id]/edit`、
+  `/admin/faq/[id]/delete`。`app/admin/(protected)/faq/actions.ts`に
+  `createFaqAction`/`updateFaqAction`/`deleteFaqAction`。
+- **UI/UXの落とし穴対応**（スマホ操作前提）:
+  - タップ領域はTailwindの`min-h-11`（44px）をボタン・入力欄・一覧行すべてに付与。
+  - カテゴリ名は日本語ラベルに変換、フィールド名も「質問」「回答」に統一。
+  - `useActionState`/`useFormStatus`の`pending`で「保存中…」「削除中…」表示。
+  - 削除は「編集画面の控えめなリンク→専用確認画面→最終ボタン」の二段階構成にし、
+    一覧・編集画面に直接の削除ボタンは置かなかった。
+  - `app/admin/error.tsx`（Error Boundary）で、想定外の例外でも生のDB情報を
+    出さず定型文だけ表示するようにした。
+- **動作確認**: ブラウザで追加・編集・削除を一通り実施。追加したFAQが
+  `npm run try:answer`のbot回答にも反映されることを確認。`tsc --noEmit` /
+  `npm run lint` / `npm run build`すべてgreen。
+
+### 詰まった点と解決策
+
+- **Middlewareのランタイム懸念**（`node:crypto`がEdgeで使えるか不明だった）。
+  → `node_modules/next/dist/docs/01-app/02-guides/upgrading/version-16.md`を確認した
+  ところ、Next.js 16では`middleware`規約自体が非推奨になり**`proxy.ts`
+  （関数名も`proxy`）にリネーム**されていた。しかも`proxy`のランタイムは
+  **常にNode.js固定（Edge不可・`runtime`指定もできない）**。学習データと違う
+  破壊的変更の典型例で、`AGENTS.md`の「実装前にドキュメントを読め」がそのまま
+  効いた。おかげで`node:crypto`をそのまま使え、Web Crypto APIへの書き換えは不要だった。
+- **`server-only`の誤検知リスク**: `lib/admin/session.ts`は`proxy.ts`と
+  Server Actionsの両方からimportする必要があった。`server-only`パッケージは
+  `package.json`の`exports`で`react-server`条件が立つ場所でしか正しく働かず、
+  `proxy.ts`のようなReactレンダリングパイプライン外から呼ばれると誤って
+  throwする恐れがある（フェーズ1で`tsx`から`server-only`をimportして同種の問題に
+  当たった前例と同じ罠）。→ 署名ロジック自体（`session.ts`）には`server-only`を
+  付けず、`cookies()`を使うNext.js依存部分（`guard.ts`）だけに付けて分離した。
+- **Server Actionsは連打を自動で防いでくれない**。公式ドキュメントに
+  「クライアントは複数のServer Actionを順番に処理する（＝2回押せば2回とも実行
+  される。1件目の完了を待つだけ）」と明記があった。→ `pending`中は
+  ボタンを`disabled`にすることで明示的に二重送信を防いだ。
+
+### 学び
+
+- Next.js 16の`middleware`→`proxy`リネームは学習データに無い破壊的変更。
+  「知っているはずのAPI」でも実装前に公式ドキュメントを読む価値があると
+  実感できた回だった。
+- `useActionState`で「送信中」「バリデーションエラー」「入力値」をまとめて
+  管理すると、エラーで差し戻されても入力済みの文字が消えない。スマホでの
+  再入力はPCよりずっと手間なので、この一手間の効果は大きい。
+- Server Actionはページを経由せず直接POSTでも呼び出せる（公式ドキュメントに
+  明記）。ルーティング側（`proxy.ts`）のガードだけに頼らず、Action自身の
+  先頭でも認証チェックを入れる「多重防御」が必要だった。
+
+### 次フェーズ（この順番で）
+
+1. `faq` / `menus` の初期データ投入フロー（実データへの差し替え）。
+2. 配色決定。
+3. フェーズ2で保留にした6件の対応、`after()`による非同期化などの改善。
+4. 本番デプロイ構成の検討。

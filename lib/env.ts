@@ -83,3 +83,14 @@ export function getOpenAIEnv() {
     model: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
   };
 }
+
+/**
+ * 管理画面（/admin）用のサーバー専用設定。
+ * 他の getXxxEnv() と同じ理由で分離している。管理画面を使わない経路
+ * （LINE webhook・疎通確認ページ等）が ADMIN_PASSWORD 未設定で落ちないようにするため。
+ */
+export function getAdminEnv() {
+  return {
+    password: required("ADMIN_PASSWORD", process.env.ADMIN_PASSWORD),
+  };
+}
