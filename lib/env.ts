@@ -52,21 +52,22 @@ export function getServerEnv() {
  * getServerEnv() / getOpenAIEnv() とは分けている。LINE を使わない経路
  * （疎通確認ページ・try:answer など）が LINE キー未設定で落ちないようにするため。
  *
- * - channelSecret: webhook の署名（x-line-signature）検証に使う。
- * - channelAccessToken: reply API を叩くときの Bearer トークン。
+ * channelSecret と channelAccessToken は、さらに 2 つの関数に分けて公開する
+ * （1 つの getLineEnv() にまとめない）。理由: 署名検証（channelSecret のみ必要）は
+ * reply 送信（channelAccessToken のみ必要）より前に走る。1 関数にまとめると、
+ * 「access token が未設定/失効している」だけで、正しい署名の webhook まで
+ * 検証前に throw して 500 になってしまう（本来 401 or 200 で返すべきところ）。
  * どちらもサーバー専用。絶対に NEXT_PUBLIC_ を付けない。
  */
-export function getLineEnv() {
-  return {
-    channelAccessToken: required(
-      "LINE_CHANNEL_ACCESS_TOKEN",
-      process.env.LINE_CHANNEL_ACCESS_TOKEN,
-    ),
-    channelSecret: required(
-      "LINE_CHANNEL_SECRET",
-      process.env.LINE_CHANNEL_SECRET,
-    ),
-  };
+export function getLineChannelSecret(): string {
+  return required("LINE_CHANNEL_SECRET", process.env.LINE_CHANNEL_SECRET);
+}
+
+export function getLineChannelAccessToken(): string {
+  return required(
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    process.env.LINE_CHANNEL_ACCESS_TOKEN,
+  );
 }
 
 /**

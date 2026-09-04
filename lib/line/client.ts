@@ -8,7 +8,7 @@
 
 import "server-only";
 
-import { getLineEnv } from "@/lib/env";
+import { getLineChannelAccessToken } from "@/lib/env";
 
 const LINE_REPLY_ENDPOINT = "https://api.line.me/v2/bot/message/reply";
 
@@ -25,7 +25,7 @@ export async function replyText(
   replyToken: string,
   text: string,
 ): Promise<void> {
-  const { channelAccessToken } = getLineEnv();
+  const channelAccessToken = getLineChannelAccessToken();
 
   const res = await fetch(LINE_REPLY_ENDPOINT, {
     method: "POST",
@@ -41,7 +41,15 @@ export async function replyText(
 
   if (!res.ok) {
     // レスポンス本文に理由（invalid reply token 等）が入る。握らずログへ回す。
-    const detail = await res.text().catch(() => "");
+    // res.text() 自体が失敗する（ストリーム中断等）こともあり得るので、
+    // その場合も詳細を空文字にせず一言ログを残す（原因究明を早くするため）。
+    const detail = await res.text().catch((textError: unknown) => {
+      console.error(
+        "[replyText] エラーレスポンスの読み取りにも失敗しました",
+        textError,
+      );
+      return "";
+    });
     throw new Error(`LINE reply API が失敗しました: ${res.status} ${detail}`);
   }
 }

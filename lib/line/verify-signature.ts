@@ -10,11 +10,32 @@ import "server-only";
 import crypto from "node:crypto";
 
 /**
- * x-line-signature を検証する。
+ * x-line-signature の期待値を計算する。
+ *
+ * 本番の検証（このファイル）と、ローカル確認スクリプト（scripts/try-webhook.ts）の
+ * 両方から使う共通ロジック。2箇所に別々の HMAC 計算を書くと、将来どちらかだけ
+ * 直し忘れたときに気づきにくい（例: スクリプト側が古いままだと「正しい署名の
+ * テスト」がずっと 401 で落ち続けるのに、誰も気づかない）ため、ここに 1 箇所化する。
  *
  * @param rawBody リクエストボディの「生の文字列」。JSON.parse して再度
  *   文字列化したものは使えない（キー順・空白が変わると署名が一致しない）。
- *   route 側では必ず `await request.text()` を最初に呼ぶこと。
+ * @param channelSecret HMAC の鍵（LINE のチャネルシークレット）。
+ */
+export function computeLineSignature(
+  rawBody: string,
+  channelSecret: string,
+): string {
+  return crypto
+    .createHmac("sha256", channelSecret)
+    .update(rawBody)
+    .digest("base64");
+}
+
+/**
+ * x-line-signature を検証する。
+ *
+ * @param rawBody リクエストボディの「生の文字列」。route 側では必ず
+ *   `await request.text()` を最初に呼び、それをそのまま渡すこと。
  * @param signature x-line-signature ヘッダの値（base64）。未設定なら false。
  * @param channelSecret HMAC の鍵（LINE のチャネルシークレット）。
  */
@@ -25,10 +46,7 @@ export function verifyLineSignature(
 ): boolean {
   if (!signature) return false;
 
-  const expected = crypto
-    .createHmac("sha256", channelSecret)
-    .update(rawBody)
-    .digest("base64");
+  const expected = computeLineSignature(rawBody, channelSecret);
 
   const a = Buffer.from(expected);
   const b = Buffer.from(signature);

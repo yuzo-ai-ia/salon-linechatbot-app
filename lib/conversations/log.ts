@@ -16,7 +16,17 @@ export type ConversationLog = {
   lineUserId: string;
   /** ユーザーから受信した本文。 */
   receivedMessage: string;
-  /** bot が返した本文。生成失敗時は null。 */
+  /**
+   * bot が生成した回答文。generateFaqAnswer() は例外時も FALLBACK_ANSWER を
+   * 返す設計で null にはならないため、実質的に常に string が入る
+   * （型を string | null のままにしているのは、将来 生成そのものを
+   * スキップするケースが出た場合の余地として）。
+   *
+   * 注意: これは「生成した文面」であって「LINE に実際に届いた文面」ではない。
+   * replyText() が失敗（invalid reply token 等）してもこの値はそのまま記録される。
+   * 配信の成否を区別したい場合は、conversations にカラムを追加する
+   * スキーマ変更が必要（次フェーズの検討事項）。
+   */
   botResponse: string | null;
   /** 応答の確信度 0〜1。壊れている場合は null。 */
   confidence: number | null;

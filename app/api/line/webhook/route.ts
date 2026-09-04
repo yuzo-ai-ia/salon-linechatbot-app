@@ -11,7 +11,7 @@
 //     二重返信になるため。1 イベントの失敗が他イベントを巻き込まないよう
 //     Promise.allSettled で処理する。
 
-import { getLineEnv } from "@/lib/env";
+import { getLineChannelSecret } from "@/lib/env";
 import { logConversation } from "@/lib/conversations/log";
 import { generateFaqAnswer } from "@/lib/faq/generate-answer";
 import { replyText } from "@/lib/line/client";
@@ -26,7 +26,10 @@ export async function POST(request: Request): Promise<Response> {
   // 署名検証のため、まず生の本文を読む（JSON.parse 前の文字列そのもの）。
   const rawBody = await request.text();
   const signature = request.headers.get("x-line-signature");
-  const { channelSecret } = getLineEnv();
+  // 署名検証には channelSecret だけ必要。channelAccessToken（reply 用）が
+  // 未設定でも、正しい署名のリクエストは検証を通せるようにするため
+  // getLineChannelSecret() だけを呼ぶ（getLineChannelAccessToken() は呼ばない）。
+  const channelSecret = getLineChannelSecret();
 
   if (!verifyLineSignature(rawBody, signature, channelSecret)) {
     console.warn("[line/webhook] 署名検証に失敗しました");

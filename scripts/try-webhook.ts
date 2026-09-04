@@ -15,8 +15,8 @@
 // 一連の流れが通ることと、conversations に実際に行が増えること。
 
 import { getServerSupabase } from "@/lib/supabase/server";
-import { getLineEnv } from "@/lib/env";
-import crypto from "node:crypto";
+import { getLineChannelSecret } from "@/lib/env";
+import { computeLineSignature } from "@/lib/line/verify-signature";
 
 const WEBHOOK_URL = "http://localhost:3000/api/line/webhook";
 // テスト専用の固定 userId。他のテストと混ざらないよう分かりやすい値にする。
@@ -37,13 +37,6 @@ function buildBody(text: string): string {
   return JSON.stringify(payload);
 }
 
-function sign(rawBody: string, channelSecret: string): string {
-  return crypto
-    .createHmac("sha256", channelSecret)
-    .update(rawBody)
-    .digest("base64");
-}
-
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const badSignature = args.includes("--bad-signature");
@@ -54,11 +47,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const { channelSecret } = getLineEnv();
+  const channelSecret = getLineChannelSecret();
   const rawBody = buildBody(question);
   const signature = badSignature
     ? "invalid-signature-for-testing"
-    : sign(rawBody, channelSecret);
+    : // 本番の署名検証（lib/line/verify-signature.ts）と同じ計算ロジックを使う。
+      // ここだけ別実装だと、片方だけ直し忘れたときにテストが気づかず壊れるため。
+      computeLineSignature(rawBody, channelSecret);
 
   console.log(`POST ${WEBHOOK_URL}`);
   console.log(`Q: ${question}`);
