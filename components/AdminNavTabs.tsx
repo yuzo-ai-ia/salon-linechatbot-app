@@ -1,6 +1,6 @@
 "use client";
 
-// FAQ管理⇔メニュー管理⇔会話ログの切り替えタブ。
+// FAQ管理⇔メニュー管理⇔会話ログ⇔お知らせ配信の切り替えタブ。
 // 現在地のハイライトに現在のURL（usePathname）が必要なので、ここだけ
 // "use client" にしている（layout.tsx自体はServer Componentのまま）。
 
@@ -11,6 +11,7 @@ const TABS = [
   { href: "/admin/faq", label: "FAQ管理" },
   { href: "/admin/menus", label: "メニュー管理" },
   { href: "/admin/conversations", label: "ログ" },
+  { href: "/admin/broadcasts", label: "配信" },
 ] as const;
 
 export function AdminNavTabs() {

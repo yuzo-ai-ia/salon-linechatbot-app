@@ -810,3 +810,112 @@ webhookからの書き込み専用で、中身を見るにはSupabase Studioで�
 1. フェーズ2で保留にした6件の対応、`after()`による非同期化などの改善。
 2. 会話ログの件数が増えてきたらページネーションを検討。
 3. 本番デプロイ構成の検討。
+
+---
+
+## フェーズ6: 管理画面にお知らせ一斉配信を追加（2026-09-06）
+
+美容室オーナーがLINE友だち全員にお知らせ（休業告知・キャンペーン等）を
+一斉配信できるように、`/admin/broadcasts`を追加した。他の管理画面と同じ
+認証・レイアウト・スマホUIの方針だが、**一斉配信は取り消せない破壊的操作**
+なので、削除機能以上に慎重な設計にした。
+
+### 計画段階で決めた3つの方針
+
+1. **送信前に必ずプレビュー＆確認ステップを挟む**（誤送信防止）。DBに
+   下書き行を作ってから確認画面へ遷移する方式は後片付けが面倒なので、
+   ページ遷移せずcompose/confirmの2フェーズをクライアント側のstateだけで
+   切り替える設計にした（`BroadcastForm.tsx`）。
+2. **配信履歴は新規`broadcasts`テーブルに保存する**。`conversations`は
+   「1顧客×1受信メッセージ」向けの設計で、宛先を持たない一斉配信を
+   相乗りさせるのは不適切と判断し、専用テーブルを新設した。
+3. **本番配信（broadcast API・全員宛て）とは別に、自分のLINEにだけ届く
+   「テスト送信」（push API・特定1人宛て）ボタンを用意する**。宛先は
+   環境変数`LINE_TEST_USER_ID`（自分のLINE user id）で持つ。値は
+   フェーズ5で作った「ログ」画面（`/admin/conversations`）に表示されている
+   `line_user_id`から確認できる。
+
+### やったこと
+
+- **マイグレーション**: `supabase/migrations/20260906_create_broadcasts.sql`
+  で`broadcasts`テーブル（`message`/`status`/`error_detail`/`created_at`）
+  を新規作成。RLS・GRANTは`conversations`と同方針（ポリシー無し、
+  service_roleのみ読み書き可）。ユーザーがSupabase Studioで実行 →
+  実行完了を確認してから残りの実装に進んだ。
+- `lib/line/client.ts`: `broadcastText()` / `pushText()`を追加。
+  既存の`replyText()`と同じ構造（`fetch`直叩き・`Authorization: Bearer`・
+  `res.ok`チェック・失敗時`res.text()`で詳細を拾ってthrow）だが、
+  3関数で完全に同じだったエラーハンドリング部分を`postLineMessage()`に
+  切り出して重複を無くした。`replyText()`は引き続き5000文字で黙って
+  `slice`するが、`broadcastText()`/`pushText()`は文字数超過を黙って
+  切り詰めず`throw`する（管理者が書いた文面を無言で削ると誤解を招くため）。
+- `lib/env.ts`: `getLineTestUserId()`を追加。他の`getXxxEnv()`と違い
+  `required()`を使わない任意設定（未設定でも一斉配信機能自体は使え、
+  テスト送信ボタンが出ないだけにする）。`.env.local.example`にも追記
+  （`.env*`ファイルはWriteツールでブロックされるため、フェーズ0の
+  申し送り通りBashのheredoc経由で追記した）。
+- `lib/broadcasts/admin.ts`（新規）: `listRecentBroadcasts()`
+  （`created_at desc`＋`limit(50)`、`conversations`と同方針）と
+  `recordBroadcast()`。
+- `app/admin/(protected)/broadcasts/actions.ts`（新規）:
+  `sendBroadcastAction`（本番配信、成功時redirect・失敗時はredirectせず
+  入力文面を保持したままstateでエラーを返す。成功/失敗どちらも
+  `recordBroadcast()`で履歴に記録）、`sendTestBroadcastAction`
+  （テスト送信、`LINE_TEST_USER_ID`未設定ならUIだけでなくAction側でも
+  弾く多重防御、成功/失敗どちらもredirectせずインラインで結果表示、
+  履歴には記録しない＝本番配信の実績ではないため）。
+- `components/BroadcastForm.tsx`（新規・`"use client"`）: compose/confirmの
+  2フェーズ切り替え。confirmフェーズには入力文面のプレビュー、
+  「配信すると取り消せません」の警告、`LINE_TEST_USER_ID`設定時のみ出す
+  テスト送信ボタン、`DeleteConfirmButton`と同じ「送信中はdisabled」
+  パターンの配信ボタン（テスト送信・本番配信で共通化した
+  `FormSubmitButton`）、編集に戻るボタンを配置。
+- `app/admin/(protected)/broadcasts/page.tsx`（新規）: フォームの下に
+  配信履歴（読み取り専用、`sent`=緑/`failed`=赤バッジ、失敗理由も表示）。
+- `components/AdminNavTabs.tsx`: タブに「配信」を追加。
+
+### 動作確認
+
+- `npx next typegen` → `npx tsc --noEmit` / `npm run lint` / `npm run build`
+  すべてgreen。
+- ブラウザで実施: 空欄で「プレビューを確認」→バリデーションエラー表示を確認。
+  本文入力→確認画面に遷移し、プレビュー・警告文・
+  `LINE_TEST_USER_ID`未設定時の案内（テスト送信ボタン非表示）を確認。
+  「編集に戻る」で本文を保持したままcomposeフェーズに戻れることを確認。
+  「配信」タブ追加後も他3画面（FAQ管理・メニュー管理・ログ）が
+  引き続き問題なく動作することを確認。
+- **「配信する（友だち全員）」ボタンはこの回では一度も押していない**
+  （ユーザーからの明示的な指示により、本番配信の実行は必ずユーザー自身が
+  行う方針。Claude側はテスト送信までの動作確認に留めた）。
+
+### 学び
+
+- 「取り消せない操作」の確認フローは、削除確認（DBの既存行をidから
+  再取得して見せる）とは前提が違う。一斉配信は**まだ保存されていない
+  入力値そのもの**をプレビューする必要があるため、下書き行を作る/hidden
+  inputで持ち回す等の工夫が要る。今回はDB下書きの後片付けを避けたくて
+  「ページ遷移せずクライアントstateで2フェーズ切り替え」にしたが、
+  `useActionState`（サーバー往復が要る本送信・テスト送信）と`useState`
+  （サーバー往復が不要なcompose⇔confirmの画面切り替え）を1つの
+  クライアントコンポーネントに共存させる設計は、削除確認のような
+  「1フォーム1状態」パターンより一段複雑になる。
+- 同じ「送信中はdisabledにする」ボタンでも、色・ラベルだけが違う
+  ケースが2つ（テスト送信・本番配信）出てきたら、`DeleteConfirmButton`を
+  そのままコピーするのではなく、パラメータ化した`FormSubmitButton`に
+  一段抽象化する方が重複が減る。ただし抽象化のしすぎも読みにくくなるため、
+  「見た目が変わるボタンが2箇所以上出た時点で共通化する」くらいの
+  タイミングが今回はちょうど良かった。
+- 外部APIのレート制限・月間配信数上限のような「プランによって変動し、
+  ドキュメントも都度更新される数値」は、コードに決め打ちで埋め込まず、
+  エラー発生時にLINEからの生メッセージをそのまま履歴に残す設計にしておくと、
+  数値を追いかけ続けなくても実際に上限に当たった時に気づける。
+
+これでフェーズ6（お知らせ一斉配信）は完了。**ただし本番配信の実クリックは
+まだ行っていない**ので、実際に友だちへ届くかどうかの最終確認はユーザー側で
+行う必要がある。
+
+### 次フェーズ（この順番で）
+
+1. フェーズ2で保留にした6件の対応、`after()`による非同期化などの改善。
+2. 会話ログ・配信履歴の件数が増えてきたらページネーションを検討。
+3. 本番デプロイ構成の検討。

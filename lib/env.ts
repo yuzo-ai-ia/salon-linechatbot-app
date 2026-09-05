@@ -71,6 +71,17 @@ export function getLineChannelAccessToken(): string {
 }
 
 /**
+ * お知らせ一斉配信のテスト送信先（管理者自身のLINE user id）。
+ * 他の getXxxEnv() と違い required() を使わない任意設定。未設定でも
+ * 一斉配信機能自体は使える（テスト送信ボタンを出さないだけにする）。
+ * 値は /admin/conversations（ログ画面）に表示される line_user_id から確認できる。
+ */
+export function getLineTestUserId(): string | null {
+  const value = process.env.LINE_TEST_USER_ID?.trim();
+  return value ? value : null;
+}
+
+/**
  * OpenAI 用のサーバー専用設定。
  * getServerEnv() とは分けている。Supabase しか使わない経路（疎通確認ページ等）が
  * OpenAI キー未設定で落ちないようにするため（関心の分離）。
