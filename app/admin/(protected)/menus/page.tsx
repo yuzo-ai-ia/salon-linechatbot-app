@@ -1,10 +1,13 @@
 // メニュー一覧。各行はタップで編集画面へ（FAQ一覧と同じ構成）。
+// 各行の右側に↑↓ボタンを置き、隣のメニューと sort_order を入れ替えて
+// 並び替えられるようにしている（先頭で↑・末尾で↓は disabled）。
 //
-// ステップ2で追加・編集画面、ステップ3で削除機能ができた。並び替えは次のステップ。
+// ステップ2で追加・編集画面、ステップ3で削除機能、ステップ4で並び替えができた。
 
 import Link from "next/link";
 import { requireAdminSession } from "@/lib/admin/guard";
 import { listMenus, type MenuAdminRow } from "@/lib/menus/admin";
+import { moveMenuAction } from "@/app/admin/(protected)/menus/actions";
 
 export default async function MenuListPage(props: PageProps<"/admin/menus">) {
   // proxy.ts でもガードしているが、FAQ側と同じ多重防御方針でページ側でも確認する。
@@ -35,6 +38,11 @@ export default async function MenuListPage(props: PageProps<"/admin/menus">) {
         {searchParams.deleted ? (
           <FlashMessage text="メニューを削除しました。" />
         ) : null}
+        {searchParams.moveError ? (
+          <p className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+            並び替えに失敗しました。時間をおいて再度お試しください。
+          </p>
+        ) : null}
 
         {loadError ? (
           <p className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
@@ -47,11 +55,11 @@ export default async function MenuListPage(props: PageProps<"/admin/menus">) {
           </p>
         ) : (
           <ul className="flex flex-col gap-2">
-            {menus.map((menu) => (
-              <li key={menu.id}>
+            {menus.map((menu, index) => (
+              <li key={menu.id} className="flex items-stretch gap-2">
                 <Link
                   href={`/admin/menus/${menu.id}/edit`}
-                  className="block min-h-11 rounded-lg border border-zinc-200 bg-white p-4 active:bg-zinc-50"
+                  className="block min-h-11 flex-1 rounded-lg border border-zinc-200 bg-white p-4 active:bg-zinc-50"
                 >
                   <div className="flex items-center gap-2">
                     <p className="font-medium text-zinc-900">{menu.name}</p>
@@ -70,6 +78,31 @@ export default async function MenuListPage(props: PageProps<"/admin/menus">) {
                     </p>
                   ) : null}
                 </Link>
+
+                {/* 並び替えボタン。<form>を<Link>（=<a>）の中に入れるとHTML的に
+                    不正になるため、Linkの兄弟要素として横に並べている。 */}
+                <div className="flex flex-col gap-1">
+                  <form action={moveMenuAction.bind(null, menu.id, "up")}>
+                    <button
+                      type="submit"
+                      disabled={index === 0}
+                      aria-label={`${menu.name}を上に移動`}
+                      className="flex h-11 w-11 items-center justify-center rounded-lg border border-zinc-300 text-lg text-zinc-700 active:bg-zinc-50 disabled:opacity-30"
+                    >
+                      ↑
+                    </button>
+                  </form>
+                  <form action={moveMenuAction.bind(null, menu.id, "down")}>
+                    <button
+                      type="submit"
+                      disabled={index === menus.length - 1}
+                      aria-label={`${menu.name}を下に移動`}
+                      className="flex h-11 w-11 items-center justify-center rounded-lg border border-zinc-300 text-lg text-zinc-700 active:bg-zinc-50 disabled:opacity-30"
+                    >
+                      ↓
+                    </button>
+                  </form>
+                </div>
               </li>
             ))}
           </ul>

@@ -93,3 +93,56 @@ export async function deleteMenu(id: string): Promise<void> {
   const { error } = await supabase.from("menus").delete().eq("id", id);
   if (error) throw error;
 }
+
+export type MoveDirection = "up" | "down";
+
+/**
+ * 一覧上で隣り合うメニューと sort_order を入れ替える。
+ * 先頭で up / 末尾で down が呼ばれた場合は何もしない（呼び出し側の一覧では
+ * ボタン自体を disabled にしているので、通常この分岐には来ない）。
+ */
+export async function moveMenu(
+  id: string,
+  direction: MoveDirection,
+): Promise<void> {
+  const supabase = getServerSupabase();
+
+  // 一覧表示と同じ並び（sort_order昇順→created_at昇順）を毎回取り直してから
+  // 隣を探す。表示中の一覧が古い場合でも、その時点の実データを基準に動かすため。
+  const menus = await listMenus();
+  const index = menus.findIndex((menu) => menu.id === id);
+  if (index === -1) return;
+
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (targetIndex < 0 || targetIndex >= menus.length) return;
+
+  const current = menus[index];
+  const target = menus[targetIndex];
+
+  const { error: currentError } = await supabase
+    .from("menus")
+    .update({ sort_order: target.sort_order })
+    .eq("id", current.id);
+  if (currentError) throw currentError;
+
+  const { error: targetError } = await supabase
+    .from("menus")
+    .update({ sort_order: current.sort_order })
+    .eq("id", target.id);
+  if (targetError) {
+    // 2件目の更新が失敗すると sort_order が重複したまま残ってしまう
+    // （2クエリなのでトランザクションではない）。片方だけ更新された状態を
+    // 残さないよう、1件目を元の値に戻してからエラーを投げる。
+    const { error: rollbackError } = await supabase
+      .from("menus")
+      .update({ sort_order: current.sort_order })
+      .eq("id", current.id);
+    if (rollbackError) {
+      console.error(
+        "[moveMenu] ロールバックにも失敗しました。sort_orderが重複している可能性があります",
+        rollbackError,
+      );
+    }
+    throw targetError;
+  }
+}

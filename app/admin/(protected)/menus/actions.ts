@@ -1,6 +1,6 @@
 "use server";
 
-// メニューの追加・更新・削除を行う Server Action。
+// メニューの追加・更新・削除・並び替えを行う Server Action。
 //
 // 重要: Server Action はページを経由せず直接 POST でも呼び出せる
 // （Next.js公式ドキュメントに明記）。proxy.ts のガードだけに頼らず、
@@ -8,7 +8,13 @@
 
 import { redirect } from "next/navigation";
 import { requireAdminSession } from "@/lib/admin/guard";
-import { createMenu, deleteMenu, updateMenu } from "@/lib/menus/admin";
+import {
+  createMenu,
+  deleteMenu,
+  moveMenu,
+  updateMenu,
+  type MoveDirection,
+} from "@/lib/menus/admin";
 
 export type MenuFormValues = {
   name: string;
@@ -210,4 +216,20 @@ export async function deleteMenuAction(id: string): Promise<void> {
   }
 
   redirect("/admin/menus?deleted=1");
+}
+
+export async function moveMenuAction(
+  id: string,
+  direction: MoveDirection,
+): Promise<void> {
+  await requireAdminSession();
+
+  try {
+    await moveMenu(id, direction);
+  } catch (e) {
+    console.error("[moveMenuAction] メニューの並び替えに失敗しました", e);
+    redirect("/admin/menus?moveError=1");
+  }
+
+  redirect("/admin/menus");
 }
