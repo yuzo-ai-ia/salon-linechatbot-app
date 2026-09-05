@@ -85,6 +85,19 @@ export function getLineTestUserId(): string | null {
 }
 
 /**
+ * アプリの公開URL（例: https://example.com）。任意設定・サーバー専用
+ * （ブラウザに公開する必要がないため NEXT_PUBLIC_ は付けない）。
+ * 末尾の "/" は呼び出し側で気にしなくていいようここで取り除く。
+ * 未設定（開発環境・本番URL未確定の間）ならnullを返し、呼び出し側
+ * （lib/line/notify-owner.ts）はパス表記にフォールバックする。
+ */
+export function getAppUrl(): string | null {
+  const value = process.env.APP_URL?.trim();
+  if (!value) return null;
+  return value.replace(/\/+$/, "");
+}
+
+/**
  * OpenAI 用のサーバー専用設定。
  * getServerEnv() とは分けている。Supabase しか使わない経路（疎通確認ページ等）が
  * OpenAI キー未設定で落ちないようにするため（関心の分離）。

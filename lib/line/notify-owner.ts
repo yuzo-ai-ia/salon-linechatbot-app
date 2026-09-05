@@ -7,7 +7,7 @@
 
 import "server-only";
 
-import { getLineTestUserId } from "@/lib/env";
+import { getAppUrl, getLineTestUserId } from "@/lib/env";
 import { pushText } from "@/lib/line/client";
 
 // pushTextの5000字上限（LINEの制約）とは別の、通知として読める長さに絞るための
@@ -22,6 +22,18 @@ function buildExcerpt(receivedMessage: string): string {
     : trimmed;
 }
 
+// APP_URL設定済み（本番デプロイ後）ならタップできる完全なURLを、未設定
+// （開発環境・本番URL未確定の間）なら今まで通りパス表記だけを返す。
+// LINEアプリはテキスト中のhttps://文字列を自動でリンク化して表示するので、
+// こちら側でリンクボタン等を作り込む必要はない。
+function buildDetailLine(): string {
+  const appUrl = getAppUrl();
+  if (appUrl) {
+    return `詳細はこちらでご確認いただけます:\n${appUrl}/admin/conversations`;
+  }
+  return "詳細は管理画面の会話ログ（/admin/conversations）でご確認いただけます。";
+}
+
 function buildMessage(receivedMessage: string, confidence: number): string {
   return `【要対応】自動回答できないお問い合わせがありました
 
@@ -31,7 +43,7 @@ function buildMessage(receivedMessage: string, confidence: number): string {
 確信度: ${Math.round(confidence * 100)}%
 
 内容をご確認のうえ、必要であればお客様にご連絡ください。
-詳細は管理画面の会話ログ（/admin/conversations）でご確認いただけます。`;
+${buildDetailLine()}`;
 }
 
 /**
