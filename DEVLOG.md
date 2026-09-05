@@ -712,3 +712,101 @@ FAQ⇔メニューを行き来する手段が無い（URLを直接打つしか�
 
 1. フェーズ2で保留にした6件の対応、`after()`による非同期化などの改善。
 2. 本番デプロイ構成の検討。
+
+---
+
+## フェーズ5: 管理画面に会話ログ一覧を追加（読み取り専用）（2026-09-05）
+
+`conversations`テーブル（LINEで受けた質問・bot応答・confidence・日時）はこれまで
+webhookからの書き込み専用で、中身を見るにはSupabase Studioで直接SQLを叩くしか
+なかった。`/admin/faq`・`/admin/menus`と同じ認証・レイアウト・スマホUIの方針で、
+読み取り専用の一覧画面`/admin/conversations`を追加した。追加・編集・削除は無い。
+
+### 計画段階で見つかった2つの食い違い
+
+計画のためにconversationsテーブルと既存の書き込みコードを調査したところ、
+ユーザーの想定と食い違う点が2つ見つかり、実装前に確認した:
+
+1. **`needs_human`が実は保存されていなかった**: テーブルには`confidence`は
+   あるが`needs_human`カラムが無く、`generateFaqAnswer()`
+   （`lib/faq/generate-answer.ts`）が判定している`needsHuman`の値は
+   これまで捨てられていた。→ マイグレーションを追加して正式に保存する方針に決定
+   （confidenceからの簡易推測はしない。過去分はデータが無いため`default false`）。
+2. **会話ログは`menus`/`faq`と違い際限なく増え続ける**（LINEメッセージ1件＝1行）。
+   既存の`listMenus()`/`listFaqs()`はどちらも絞り込みなしの全件取得で、
+   参考にできるページネーションの前例が無かった。→ v1では`created_at`降順で
+   **最新50件のみ**取得する方針に決定（ページ送りは実装しない。増えて
+   困ったら次のステップで対応）。
+
+### やったこと
+
+- **マイグレーション**: `supabase/migrations/20260905_add_needs_human_to_conversations.sql`
+  で`conversations.needs_human boolean not null default false`を追加。
+  RLS・GRANTは既存テーブルへのカラム追加なので変更不要（テーブル作成時に
+  設定済み）。フィルタ機能は作らないので新規インデックスも追加していない。
+  ユーザーがSupabase StudioのSQL Editorで実行 → 実行完了を確認してから
+  残りの実装に進んだ（このリポジトリの方針どおり、マイグレーション適用は
+  手動・Claude側では実行しない）。
+- `lib/conversations/log.ts`: `ConversationLog`型に`needsHuman: boolean`を
+  追加し、insertで`needs_human`列に保存するように変更。
+- `app/api/line/webhook/route.ts`: `logConversation()`呼び出しに
+  `needsHuman: result.needsHuman`を1行追加（`generateFaqAnswer()`の
+  戻り値に元々含まれていた値を、保存時に渡すだけで済んだ）。他に
+  `logConversation`の呼び出し箇所が無いことを`grep`で確認。
+- `lib/conversations/admin.ts`（新規）: `listRecentConversations()`。
+  `lib/faq/admin.ts`/`lib/menus/admin.ts`と同じ方針（`getServerSupabase()`・
+  エラーはthrow）だが、読み取り専用なのでCRUD関数は無し。
+  `created_at desc`＋`limit(50)`で取得（既存の
+  `conversations_created_at_idx on (created_at desc)`がそのまま効く）。
+- `app/admin/(protected)/conversations/page.tsx`（新規）: 読み取り専用の
+  一覧。CUD操作が無いので`actions.ts`は作らず`<Link>`も使わない
+  （タップしても遷移しない）。日時は`toLocaleString("ja-JP", { timeZone:
+"Asia/Tokyo", ... })`で表示（サーバーの実行環境がJSTとは限らないため
+  明示）。confidenceは`Math.round(confidence * 100)}%`のパーセント表示。
+  `needs_human`が`true`の行には赤い「要対応」バッジ（`menus`一覧の
+  「非表示」バッジと同じパターンで色だけ変更）。見出し直下に
+  「直近N件を新しい順に表示しています。」と明記し、全件ではないことを
+  利用者に分かるようにした。
+- `components/AdminNavTabs.tsx`: `TABS`配列に
+  `{ href: "/admin/conversations", label: "ログ" }`を追加。ハイライト
+  判定ロジックは既に汎用化されていたので変更不要だった。
+
+### 動作確認
+
+- `npx next typegen` → `npx tsc --noEmit` / `npm run lint` / `npm run build`
+  すべてgreen。
+- `npm run try:webhook -- "..."` を2パターンで実行し、`needs_human`が
+  正しく保存されることを確認:
+  - 明確な質問（営業時間）→ `confidence: 1` / `needs_human: false`
+  - 知識ベースに無い質問（宇宙旅行のプラン）→ `confidence: 0.3` /
+    `needs_human: true`
+  - マイグレーション前の過去ログは`needs_human: false`（デフォルト値）に
+    なっていることも確認。
+- ブラウザで実施: ログイン→「ログ」タブ→`/admin/conversations`で
+  新しい順に会話が表示され、`needs_human: true`の行に「要対応」バッジが
+  付いていることを確認。confidence・日時（JST表示）・line_user_idの
+  表示崩れも無し。「FAQ管理」「メニュー管理」タブに切り替えても
+  引き続き問題なく動作すること（既存2画面を壊していないこと）も確認。
+
+### 学び
+
+- スキーマ調査は「今あるカラムを確認する」だけでなく「アプリコードが
+  実際に何を計算・判定していて、それがDBに保存されているか」まで
+  追わないと気づけないギャップがある。今回の`needs_human`は、
+  `generateFaqAnswer()`は判定していたのに`logConversation()`が
+  保存していない、という「計算はしているが永続化されていない値」だった。
+  計画段階でこれに気づけたのは、書き込み側のコードとテーブル定義の
+  両方を突き合わせて調査したため。
+- ログ系テーブル（際限なく増え続ける）と参照系テーブル（`menus`/`faq`の
+  ような数十件規模のカタログ）は、同じ「一覧表示」でも設計が変わる。
+  参照系の「絞り込みなしの全件取得」パターンをそのまま踏襲せず、
+  データの性質（増加し続けるか否か）に応じて`limit`の要否を都度考える
+  必要がある。
+
+これでフェーズ5（会話ログ一覧・読み取り専用）は完了。
+
+### 次フェーズ（この順番で）
+
+1. フェーズ2で保留にした6件の対応、`after()`による非同期化などの改善。
+2. 会話ログの件数が増えてきたらページネーションを検討。
+3. 本番デプロイ構成の検討。

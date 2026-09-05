@@ -30,6 +30,8 @@ export type ConversationLog = {
   botResponse: string | null;
   /** 応答の確信度 0〜1。壊れている場合は null。 */
   confidence: number | null;
+  /** true = generateFaqAnswer() が有人対応が必要と判定した会話。 */
+  needsHuman: boolean;
 };
 
 /**
@@ -43,6 +45,7 @@ export async function logConversation(entry: ConversationLog): Promise<void> {
       received_message: entry.receivedMessage,
       bot_response: entry.botResponse,
       confidence: entry.confidence,
+      needs_human: entry.needsHuman,
     });
     if (error) throw error;
   } catch (e) {

@@ -81,5 +81,6 @@ async function handleEvent(event: LineEvent): Promise<void> {
     receivedMessage: text,
     botResponse: result.answer,
     confidence: result.confidence,
+    needsHuman: result.needsHuman,
   });
 }
