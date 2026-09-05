@@ -55,7 +55,7 @@ export default async function FaqListPage(props: PageProps<"/admin/faq">) {
         ) : (
           grouped.map((group) => (
             <section key={group.category} className="flex flex-col gap-2">
-              <h2 className="px-1 text-sm font-semibold text-zinc-500">
+              <h2 className="px-1 text-sm font-semibold text-greige-600">
                 {group.label}
               </h2>
               <ul className="flex flex-col gap-2">
@@ -83,7 +83,7 @@ export default async function FaqListPage(props: PageProps<"/admin/faq">) {
       <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white p-4">
         <Link
           href="/admin/faq/new"
-          className="flex min-h-11 items-center justify-center rounded-lg bg-zinc-900 px-4 text-base font-medium text-white"
+          className="flex min-h-11 items-center justify-center rounded-lg bg-greige-800 px-4 text-base font-medium text-white"
         >
           ＋ 新しいFAQを追加
         </Link>

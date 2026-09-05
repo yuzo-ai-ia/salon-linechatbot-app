@@ -28,7 +28,7 @@ export default function AdminError({
       <button
         type="button"
         onClick={reset}
-        className="min-h-11 rounded-lg bg-zinc-900 px-4 text-base font-medium text-white"
+        className="min-h-11 rounded-lg bg-greige-800 px-4 text-base font-medium text-white"
       >
         もう一度試す
       </button>

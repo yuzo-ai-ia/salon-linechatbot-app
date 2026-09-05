@@ -112,7 +112,7 @@ export default async function MenuListPage(props: PageProps<"/admin/menus">) {
       <div className="fixed inset-x-0 bottom-0 border-t border-zinc-200 bg-white p-4">
         <Link
           href="/admin/menus/new"
-          className="flex min-h-11 items-center justify-center rounded-lg bg-zinc-900 px-4 text-base font-medium text-white"
+          className="flex min-h-11 items-center justify-center rounded-lg bg-greige-800 px-4 text-base font-medium text-white"
         >
           ＋ 新しいメニューを追加
         </Link>

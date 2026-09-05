@@ -10,6 +10,20 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* サロンのアクセントカラー（くすみベージュ／グレージュ）。
+     通常操作（主要ボタン・タブのアクティブ表示・フォーカス枠等）のアクセントに
+     のみ使う。危険操作(red)・成功(green)には使わない（CLAUDE.mdの配色ルール参照）。 */
+  --color-greige-50: #f8f6f4;
+  --color-greige-100: #f0ebe6;
+  --color-greige-200: #e3dad1;
+  --color-greige-300: #d0c2b4;
+  --color-greige-400: #bcab99;
+  --color-greige-500: #a89a8c;
+  --color-greige-600: #8f8071;
+  --color-greige-700: #6f624f;
+  --color-greige-800: #574c3d;
+  --color-greige-900: #3d362c;
 }
 
 @media (prefers-color-scheme: dark) {

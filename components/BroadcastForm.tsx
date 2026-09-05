@@ -62,7 +62,7 @@ export function BroadcastForm({ hasTestUserId }: Props) {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="例: 9/15（月）は臨時休業とさせていただきます。ご迷惑をおかけしますが、よろしくお願いいたします。"
-            className="rounded-lg border border-zinc-300 px-4 py-2 text-base focus:border-zinc-500 focus:outline-none"
+            className="rounded-lg border border-zinc-300 px-4 py-2 text-base focus:border-greige-500 focus:outline-none"
           />
           {composeError ? (
             <p className="text-sm text-red-600">{composeError}</p>
@@ -72,7 +72,7 @@ export function BroadcastForm({ hasTestUserId }: Props) {
         <button
           type="button"
           onClick={handleProceedToConfirm}
-          className="min-h-11 rounded-lg bg-zinc-900 px-4 text-base font-medium text-white"
+          className="min-h-11 rounded-lg bg-greige-800 px-4 text-base font-medium text-white"
         >
           プレビューを確認
         </button>

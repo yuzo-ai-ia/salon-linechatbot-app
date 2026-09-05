@@ -30,7 +30,7 @@ export function AdminNavTabs() {
             href={tab.href}
             className={`flex min-h-11 flex-1 items-center justify-center border-b-2 text-sm font-medium ${
               isActive
-                ? "border-zinc-900 text-zinc-900"
+                ? "border-greige-700 text-greige-800"
                 : "border-transparent text-zinc-500"
             }`}
           >

@@ -30,7 +30,7 @@ export function LoginForm() {
           autoComplete="current-password"
           // 44px以上のタップ領域(min-h-11) + iOSでフォーカス時に勝手にズームされない
           // ように16px以上のフォントサイズ(text-base)にしている。
-          className="min-h-11 rounded-lg border border-zinc-300 px-4 text-base focus:border-zinc-500 focus:outline-none"
+          className="min-h-11 rounded-lg border border-zinc-300 px-4 text-base focus:border-greige-500 focus:outline-none"
         />
       </div>
 
@@ -43,7 +43,7 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={isPending}
-        className="min-h-11 rounded-lg bg-zinc-900 px-4 text-base font-medium text-white disabled:opacity-50"
+        className="min-h-11 rounded-lg bg-greige-800 px-4 text-base font-medium text-white disabled:opacity-50"
       >
         {isPending ? "確認中…" : "ログイン"}
       </button>

@@ -37,7 +37,7 @@ export function FaqForm({ action, initialValues, submitLabel }: Props) {
           id="category"
           name="category"
           defaultValue={state.values.category}
-          className="min-h-11 rounded-lg border border-zinc-300 bg-white px-4 text-base focus:border-zinc-500 focus:outline-none"
+          className="min-h-11 rounded-lg border border-zinc-300 bg-white px-4 text-base focus:border-greige-500 focus:outline-none"
         >
           {FAQ_CATEGORY_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
@@ -62,7 +62,7 @@ export function FaqForm({ action, initialValues, submitLabel }: Props) {
           placeholder="例: 営業時間は何時から何時までですか？"
           // text-base(16px以上)にしているのは、iOSでinput/textareaにフォーカスした際に
           // ブラウザが自動でズームしてしまうのを防ぐため（14px未満だと発生しやすい）。
-          className="min-h-11 rounded-lg border border-zinc-300 px-4 py-2 text-base focus:border-zinc-500 focus:outline-none"
+          className="min-h-11 rounded-lg border border-zinc-300 px-4 py-2 text-base focus:border-greige-500 focus:outline-none"
         />
         {state.fieldErrors?.question ? (
           <p className="text-sm text-red-600">{state.fieldErrors.question}</p>
@@ -79,7 +79,7 @@ export function FaqForm({ action, initialValues, submitLabel }: Props) {
           rows={5}
           defaultValue={state.values.answer}
           placeholder="例: 営業時間は10:00〜19:00です。"
-          className="rounded-lg border border-zinc-300 px-4 py-2 text-base focus:border-zinc-500 focus:outline-none"
+          className="rounded-lg border border-zinc-300 px-4 py-2 text-base focus:border-greige-500 focus:outline-none"
         />
         {state.fieldErrors?.answer ? (
           <p className="text-sm text-red-600">{state.fieldErrors.answer}</p>
@@ -98,7 +98,7 @@ export function FaqForm({ action, initialValues, submitLabel }: Props) {
       <button
         type="submit"
         disabled={isPending}
-        className="min-h-11 rounded-lg bg-zinc-900 px-4 text-base font-medium text-white disabled:opacity-50"
+        className="min-h-11 rounded-lg bg-greige-800 px-4 text-base font-medium text-white disabled:opacity-50"
       >
         {isPending ? "保存中…" : submitLabel}
       </button>

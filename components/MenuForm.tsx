@@ -39,7 +39,7 @@ export function MenuForm({ action, initialValues, submitLabel }: Props) {
           placeholder="例: カット＋カラー"
           // text-base(16px以上)にしているのは、iOSでinput/textareaにフォーカスした際に
           // ブラウザが自動でズームしてしまうのを防ぐため（14px未満だと発生しやすい）。
-          className="min-h-11 rounded-lg border border-zinc-300 px-4 text-base focus:border-zinc-500 focus:outline-none"
+          className="min-h-11 rounded-lg border border-zinc-300 px-4 text-base focus:border-greige-500 focus:outline-none"
         />
         {state.fieldErrors?.name ? (
           <p className="text-sm text-red-600">{state.fieldErrors.name}</p>
@@ -64,7 +64,7 @@ export function MenuForm({ action, initialValues, submitLabel }: Props) {
           inputMode="numeric"
           defaultValue={state.values.price}
           placeholder="例: 5000"
-          className="min-h-11 rounded-lg border border-zinc-300 px-4 text-base focus:border-zinc-500 focus:outline-none"
+          className="min-h-11 rounded-lg border border-zinc-300 px-4 text-base focus:border-greige-500 focus:outline-none"
         />
         {state.fieldErrors?.price ? (
           <p className="text-sm text-red-600">{state.fieldErrors.price}</p>
@@ -84,7 +84,7 @@ export function MenuForm({ action, initialValues, submitLabel }: Props) {
           rows={3}
           defaultValue={state.values.description}
           placeholder="例: 髪質に合わせたカラーとカットのセットメニューです。"
-          className="rounded-lg border border-zinc-300 px-4 py-2 text-base focus:border-zinc-500 focus:outline-none"
+          className="rounded-lg border border-zinc-300 px-4 py-2 text-base focus:border-greige-500 focus:outline-none"
         />
         {state.fieldErrors?.description ? (
           <p className="text-sm text-red-600">
@@ -98,7 +98,7 @@ export function MenuForm({ action, initialValues, submitLabel }: Props) {
           type="checkbox"
           name="is_active"
           defaultChecked={state.values.isActive}
-          className="h-5 w-5 rounded border-zinc-300"
+          className="h-5 w-5 rounded border-zinc-300 accent-greige-700"
         />
         お客様向けに表示する
       </label>
@@ -115,7 +115,7 @@ export function MenuForm({ action, initialValues, submitLabel }: Props) {
       <button
         type="submit"
         disabled={isPending}
-        className="min-h-11 rounded-lg bg-zinc-900 px-4 text-base font-medium text-white disabled:opacity-50"
+        className="min-h-11 rounded-lg bg-greige-800 px-4 text-base font-medium text-white disabled:opacity-50"
       >
         {isPending ? "保存中…" : submitLabel}
       </button>

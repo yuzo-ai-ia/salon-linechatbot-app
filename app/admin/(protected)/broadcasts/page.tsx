@@ -55,7 +55,7 @@ export default async function BroadcastPage(
       <BroadcastForm hasTestUserId={hasTestUserId} />
 
       <div className="flex flex-col gap-3 border-t border-zinc-200 p-4">
-        <p className="text-sm font-medium text-zinc-700">配信履歴</p>
+        <p className="text-sm font-medium text-greige-600">配信履歴</p>
 
         {loadError ? (
           <p className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
