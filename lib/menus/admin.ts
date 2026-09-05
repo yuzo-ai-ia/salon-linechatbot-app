@@ -46,3 +46,44 @@ export async function listMenus(): Promise<MenuAdminRow[]> {
   if (error) throw error;
   return (data ?? []) as MenuAdminRow[];
 }
+
+/**
+ * id 指定で1件取得する。存在しなければ null（呼び出し側で notFound() 等にする）。
+ */
+export async function getMenuById(id: string): Promise<MenuAdminRow | null> {
+  const supabase = getServerSupabase();
+  const { data, error } = await supabase
+    .from("menus")
+    .select(MENU_COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as MenuAdminRow | null) ?? null;
+}
+
+export async function createMenu(input: MenuInput): Promise<void> {
+  const supabase = getServerSupabase();
+
+  // sort_order はフォームに無いので自動採番する。既存メニューの最大値+1にすることで
+  // 新規追加分は常に一覧の末尾に入る（並び替えは一覧の↑↓ボタン側で今後実装）。
+  const { data: maxRow, error: maxError } = await supabase
+    .from("menus")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (maxError) throw maxError;
+  const nextSortOrder = (maxRow?.sort_order ?? -1) + 1;
+
+  const { error } = await supabase
+    .from("menus")
+    .insert({ ...input, sort_order: nextSortOrder });
+  if (error) throw error;
+}
+
+export async function updateMenu(id: string, input: MenuInput): Promise<void> {
+  const supabase = getServerSupabase();
+  // sort_order は更新しない（並び替えは一覧の↑↓ボタン側の責務にするため）。
+  const { error } = await supabase.from("menus").update(input).eq("id", id);
+  if (error) throw error;
+}
