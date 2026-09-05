@@ -15,6 +15,7 @@ import { getLineChannelSecret } from "@/lib/env";
 import { logConversation } from "@/lib/conversations/log";
 import { generateFaqAnswer } from "@/lib/faq/generate-answer";
 import { replyText } from "@/lib/line/client";
+import { notifyOwnerNeedsHuman } from "@/lib/line/notify-owner";
 import type { LineEvent, LineWebhookBody } from "@/lib/line/types";
 import { verifyLineSignature } from "@/lib/line/verify-signature";
 
@@ -83,4 +84,14 @@ async function handleEvent(event: LineEvent): Promise<void> {
     confidence: result.confidence,
     needsHuman: result.needsHuman,
   });
+
+  // 有人対応が必要な会話だけ、オーナーへ能動的に知らせる（通知は返信・記録より
+  // さらに優先度が下）。notifyOwnerNeedsHuman は内部で握るので await でよい
+  // （logConversation と同じ契約。通知の失敗で返信・記録処理を止めない）。
+  if (result.needsHuman) {
+    await notifyOwnerNeedsHuman({
+      receivedMessage: text,
+      confidence: result.confidence,
+    });
+  }
 }

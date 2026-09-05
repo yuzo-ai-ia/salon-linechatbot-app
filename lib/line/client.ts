@@ -103,7 +103,8 @@ export async function broadcastText(text: string): Promise<void> {
 }
 
 /**
- * 特定の1人（to）にだけテキスト1通を送る。broadcastのテスト送信用。
+ * 特定の1人（to）にだけテキスト1通を送る。broadcastのテスト送信、および
+ * needs_human 判定時のオーナー通知（lib/line/notify-owner.ts）で使う。
  */
 export async function pushText(to: string, text: string): Promise<void> {
   assertWithinLineTextLimit(text);

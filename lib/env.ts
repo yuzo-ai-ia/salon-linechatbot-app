@@ -71,9 +71,12 @@ export function getLineChannelAccessToken(): string {
 }
 
 /**
- * お知らせ一斉配信のテスト送信先（管理者自身のLINE user id）。
- * 他の getXxxEnv() と違い required() を使わない任意設定。未設定でも
- * 一斉配信機能自体は使える（テスト送信ボタンを出さないだけにする）。
+ * 管理者（オーナー）自身のLINE user id。任意設定。用途は2つ:
+ *   1. お知らせ一斉配信のテスト送信先（自分にだけ届く確認用）。
+ *   2. needs_human判定時にオーナーへ能動的に知らせるプッシュ通知の送信先
+ *      （lib/line/notify-owner.ts）。
+ * 他の getXxxEnv() と違い required() を使わない。未設定でも両機能自体は使える
+ * （1はテスト送信ボタンを出さない、2は通知をスキップするだけ）。
  * 値は /admin/conversations（ログ画面）に表示される line_user_id から確認できる。
  */
 export function getLineTestUserId(): string | null {
