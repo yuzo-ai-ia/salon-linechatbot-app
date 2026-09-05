@@ -1452,3 +1452,57 @@ LINEへ送信してユーザー本人に確認してもらった:
 2. 本番デプロイ構成の検討（この際`APP_URL`に実際のドメインを設定する）。
 3. （保留中）統合テストで見つかった①空メッセージへの無反応・②絵文字だけの
    メッセージでconfidence高め、の2点は引き続き未対応。
+
+---
+
+## GitHub公開準備（2026-09-06）
+
+これまでローカルgitのみで開発してきたが、リモートリポジトリ（GitHub）を
+作成してpushした。ここまで秘密情報の扱いに気をつけて進めてきたつもりでも、
+「push前に本当に漏れていないか」を機械的に確認してから実施した。
+
+### やったこと（push前チェック）
+
+- `.gitignore`の`.env*`（`!.env.local.example`で例外化）が効いているか
+  `git check-ignore -v .env.local`で実際に確認 → 無視対象と判定される
+  ことを確認（ルールが書いてあるのと、実際にそのファイルに対して効くのは
+  別問題なので、必ず対象ファイルで検証する）。
+- `git log --all --full-history -- .env.local`で、`.env.local`が過去に
+  一度でもコミットされたことがないかを履歴全体から確認 → ヒットなし。
+- `git log --all -p`の全diffに対して、OpenAIキー（`sk-`）・JWT形式
+  （`eyJ...`）・各種環境変数への直書きパターンをgrep → ヒットなし。
+  （`.gitignore`が今効いていても、過去のコミットで一度でも追跡された
+  実績があれば履歴に残り続けるため、現在の状態だけでなく履歴全体を
+  見る必要がある）
+- `git remote -v`でリモート未設定であることを確認してから、
+  `gh repo create salon-linechatbot-app --private --source=. --remote=origin`
+  でリポジトリ作成〜`origin`設定を一括実行。
+- `git ls-files`でpush対象ファイル一覧を出力し、目視で最終確認
+  （特にseedデータとscripts配下は個別に中身を読んだ）。
+- 確認後`git push -u origin main`を実行。
+
+### 詰まった点と解決策
+
+- 特につまづきはなし。ただし「`.gitignore`に書いてあるから安全」と
+  思い込まず、`check-ignore`・履歴grep・`ls-files`の3点を実コマンドで
+  確認してからpushする、という手順を踏んだのが今回のポイント。
+  規約ファイルの記述と実際の挙動は別物として扱う。
+
+### 学び
+
+- 秘密情報の漏洩チェックは「今のファイルにあるか」だけでなく
+  「過去のコミット履歴に一度でも入ったことがあるか」を別軸で見る必要がある。
+  一度コミットしてから`.gitignore`に追加しても、そのコミット自体は
+  履歴に残り続けるため、`git log --all --full-history -- <file>`や
+  `git log --all -p | grep ...`のように**履歴全体**を検索対象にする。
+- `gh repo create --source=. --remote=origin`で「リポジトリ作成」と
+  「ローカルへのremote登録」が1コマンドで完結する（Web UIで作ってから
+  `git remote add`する2段階を省略できる）。
+- 個人情報を扱うアプリ（LINE bot・会話ログ）のリポジトリは、特に理由が
+  なければ最初からPrivateで作るのが安全（後からPrivate→Publicの変更は
+  できるが、逆はGitHub上で一度公開された事実は消せない）。
+
+### この時点の状態
+
+- リポジトリ: `https://github.com/yuzo-ai-ia/salon-linechatbot-app`（Private）
+- `main`ブランチをpush済み、`-u`でトラッキング設定済み（以後は`git push`のみでOK）。
