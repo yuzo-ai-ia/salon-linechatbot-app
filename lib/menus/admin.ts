@@ -87,3 +87,9 @@ export async function updateMenu(id: string, input: MenuInput): Promise<void> {
   const { error } = await supabase.from("menus").update(input).eq("id", id);
   if (error) throw error;
 }
+
+export async function deleteMenu(id: string): Promise<void> {
+  const supabase = getServerSupabase();
+  const { error } = await supabase.from("menus").delete().eq("id", id);
+  if (error) throw error;
+}

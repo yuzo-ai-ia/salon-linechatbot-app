@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { requireAdminSession } from "@/lib/admin/guard";
 import { getMenuById } from "@/lib/menus/admin";
 import { MenuForm } from "@/components/MenuForm";
@@ -26,8 +27,16 @@ export default async function EditMenuPage(
         }}
         submitLabel="更新する"
       />
-      {/* 削除機能は次のステップで実装予定。ここにリンクを置くのはそれから
-          （リンク切れの画面を作らないため）。 */}
+      <div className="px-4 pb-8">
+        {/* 誤操作防止のため、削除はここから確認画面を経由させる
+            （一覧やこの画面に直接の削除ボタンは置かない。FAQ側と同方針）。 */}
+        <Link
+          href={`/admin/menus/${id}/delete`}
+          className="inline-flex min-h-11 items-center text-sm text-red-600 underline"
+        >
+          このメニューを削除する
+        </Link>
+      </div>
     </div>
   );
 }

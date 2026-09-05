@@ -595,8 +595,34 @@ pattern問題を修正（全角・カンマ対応）。
   意図した入力すら届かないことがある。計画通りの検証コードを書いた後も、
   **実際にその値を打って送信するところまで確認しないと気づけない**バグだった。
 
+### やったこと（ステップ3: 削除機能）
+
+- `lib/menus/admin.ts`に`deleteMenu(id)`を追加（`lib/faq/admin.ts`の
+  `deleteFaq`と同型。`.delete().eq("id", id)`、エラーは throw）。
+- `app/admin/(protected)/menus/actions.ts`に`deleteMenuAction(id)`を追加
+  （`deleteFaqAction`と同型。先頭で`requireAdminSession()`、失敗時は
+  `/admin/menus/${id}/delete?error=1`に戻す、成功時は
+  `/admin/menus?deleted=1`にredirect）。
+- `app/admin/(protected)/menus/[id]/delete/page.tsx`（新規）: FAQ側の
+  削除確認画面と同構成。メニュー名・価格・説明を表示し、FAQ側で使っている
+  `components/DeleteConfirmButton.tsx`をそのまま流用（新規コンポーネントは
+  作らず既存を再利用）。
+- 編集画面（`[id]/edit/page.tsx`）に「このメニューを削除する」リンクを追加
+  （一覧・編集画面に直接の削除ボタンは置かず、確認画面を必ず経由させる
+  誤操作防止方針はFAQ側と同じ）。
+- 一覧画面に`deleted`クエリのフラッシュメッセージを追加。
+
+### 動作確認（ステップ3）
+
+- `npx next typegen`で`[id]/delete`ルートの型を再生成 →
+  `npx tsc --noEmit` / `npm run lint` / `npm run build`すべてgreen。
+- ブラウザで実施: テスト用メニューを1件追加 → 編集画面の削除リンク →
+  確認画面（名前・価格が表示される）→「削除する」→
+  `/admin/menus?deleted=1`にredirectし「メニューを削除しました。」が表示、
+  一覧からも消えていることを確認。存在しないIDで削除確認画面
+  （`/admin/menus/<存在しないid>/delete`）にアクセスすると404になることも確認。
+
 ### 次のステップ
 
-1. 削除（`deleteMenuAction`・削除確認画面）。
-2. 並び替え（`moveMenuAction`・一覧の↑↓ボタン）。
-3. `/admin/faq`⇔`/admin/menus`の切り替えナビゲーション追加。
+1. 並び替え（`moveMenuAction`・一覧の↑↓ボタン）。
+2. `/admin/faq`⇔`/admin/menus`の切り替えナビゲーション追加。

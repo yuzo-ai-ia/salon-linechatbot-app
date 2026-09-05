@@ -1,7 +1,6 @@
 // メニュー一覧。各行はタップで編集画面へ（FAQ一覧と同じ構成）。
 //
-// ステップ2で追加・編集画面ができたので、一覧にも「＋ 新しいメニューを
-// 追加」ボタンと各行への編集リンクを追加した。削除・並び替えは次のステップ以降。
+// ステップ2で追加・編集画面、ステップ3で削除機能ができた。並び替えは次のステップ。
 
 import Link from "next/link";
 import { requireAdminSession } from "@/lib/admin/guard";
@@ -32,6 +31,9 @@ export default async function MenuListPage(props: PageProps<"/admin/menus">) {
         ) : null}
         {searchParams.updated ? (
           <FlashMessage text="メニューを更新しました。" />
+        ) : null}
+        {searchParams.deleted ? (
+          <FlashMessage text="メニューを削除しました。" />
         ) : null}
 
         {loadError ? (
