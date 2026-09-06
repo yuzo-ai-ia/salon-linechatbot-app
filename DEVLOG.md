@@ -1506,3 +1506,110 @@ LINEへ送信してユーザー本人に確認してもらった:
 
 - リポジトリ: `https://github.com/yuzo-ai-ia/salon-linechatbot-app`（Private）
 - `main`ブランチをpush済み、`-u`でトラッキング設定済み（以後は`git push`のみでOK）。
+
+---
+
+## フェーズ13: 本番デプロイ（Vercel）（2026-09-06）
+
+これまでngrok（URLが毎回変わる一時確認用）でしか外部公開できていなかったのを、
+Vercel + GitHub連携で常時起動・固定URLの本番環境に載せた。Plan Modeで
+「デプロイ前チェック → 手順プラン」を先に固めてから実行した。
+
+### デプロイ前チェック（Plan Modeで実施・コードから確定させた）
+
+- **必要な環境変数をコードから確定**: `grep -rn "process\.env"`の結果、
+  参照しているのは実質`lib/env.ts`だけ（例外は`app/admin/login/actions.ts`の
+  `NODE_ENV`判定のみ＝Vercelが自動設定するので不要）。CLAUDE.mdの
+  「環境変数は必ず`lib/env.ts`経由」が守られていたので一覧化が楽だった。
+  - 必須7個: `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` /
+    `SUPABASE_SECRET_KEY` / `OPENAI_API_KEY` / `LINE_CHANNEL_ACCESS_TOKEN` /
+    `LINE_CHANNEL_SECRET` / `ADMIN_PASSWORD`
+  - 任意3個: `OPENAI_MODEL`（未設定なら`gpt-4o-mini`）/ `LINE_TEST_USER_ID`
+    （テスト送信＋オーナー通知先）/ `APP_URL`（通知文のリンク）
+- **`.gitignore`の検証**: `git check-ignore -v .env.local`で無視対象と確認、
+  `git ls-files | grep env`で`.env.local`が追跡されていないことを確認。
+- **`npm run build`ローカル**: green（Next.js 16.3.4 / Turbopack / tsc・
+  静的生成11ページすべて通過）。
+- **`next.config` / `vercel.json`**: 直すものなし。`vercel.json`は不要
+  （VercelがNext.jsを自動検出）、`next.config.ts`は空のままでよい、
+  `proxy.ts`（Middleware相当）はVercelがサポート・Node.jsランタイム固定なので
+  `node:crypto`もそのまま動く。
+
+### やったこと
+
+- **Vercelプロジェクト作成 + GitHub連携**: `yuzo-ai-ia/salon-linechatbot-app`を
+  Import。`main`にpushすると自動デプロイされる構成。
+- **本番Supabaseは開発用プロジェクトを流用**（教材段階かつデータも少ないため。
+  会話ログに開発中のテストデータが混ざる点は許容）。
+- **環境変数を本番用に10個設定**（Vercel Project Settings → Environment Variables、
+  Production）:
+  - 必須7個は`.env.local`からコピー。ただし**`ADMIN_PASSWORD`は本番用の
+    新しい値に変更**（開発用と使い回さない。ステートレスセッションで流出時は
+    7日間無効化できない設計のため — フェーズ8参照）。
+  - `LINE_TEST_USER_ID`も登録（本番でもオーナー通知・テスト送信を有効化）。
+  - `APP_URL = https://salon-linechatbot-app.vercel.app` を設定 →
+    再デプロイ（env追加だけでは反映されないためRedeploy）。
+- **デプロイ確認**（発行URL: `https://salon-linechatbot-app.vercel.app`）:
+  - `/` → 「Supabase 接続成功 / faq テーブル: 10 件」
+  - `/admin/login` → 表示OK、本番`ADMIN_PASSWORD`でログイン確認
+  - 未ログインで`/admin/faq`に直アクセス → `/admin/login`にリダイレクト
+    （`proxy.ts`のガードが本番でも機能）
+- **LINE Webhook URLを本番に切替**: LINE Developers Console →
+  `https://salon-linechatbot-app.vercel.app/api/line/webhook` に変更 → 「検証」Success。
+- **実機テスト**: スマホのLINEから「営業時間を教えてください」→ 正常応答。
+  needs_human系の質問 → 返信＋オーナーのLINEに通知が届き、通知文に
+  `APP_URL`付きのタップ可能リンク（`/admin/conversations`）が入ることを確認。
+
+### 詰まった点と解決策
+
+- **webhook初回に「JWT issued at future」エラー（`code: PGRST303`）で
+  `generateFaqAnswer`が失敗**。
+  → 原因は**時計のズレ**。SupabaseキーのJWTに含まれる発行時刻（iat）が、
+  検証する側（サーバー）の現在時刻より「未来」に見えると、PostgREST が
+  「まだ有効になっていないトークン」として弾く。ローカルMacの時刻が
+  わずかに進んでいた（またはキー生成時と検証時のタイムスタンプがズレていた）
+  のが原因。**少し時間を置いたら自然に解消**し、正常応答するようになった。
+  - **再発時の対処（この順番で）**:
+    1. Macの「システム設定 → 一般 → 日付と時刻 → 時刻を自動的に設定」が
+       オンになっているか確認（NTP同期でズレを直す）。
+    2. それでも直らなければ Supabase Studio で API キー（Secret / Publishable）を
+       **再発行**し、Vercelの環境変数を更新して再デプロイ。
+
+### 学び
+
+- **`NEXT_PUBLIC_*`はビルド時にJSバンドルへ「inline（値の焼き込み）」される**
+  （Next.jsの`environment-variables.md`で確認）。ビルド後は環境変数を変えても
+  再ビルドしない限り反映されない。Vercelは Project Settings の env をビルド時にも
+  渡すので、「最初のデプロイ前に必須変数を全部登録しておく」を守れば問題ないが、
+  この性質を知らないと「あとで変えればいい」と思って詰む。
+- **Vercelは`vercel.json`不要**。Next.jsを自動検出し、ビルド／出力／インストール
+  （`package-lock.json`があるので`npm ci`）まで自動設定する。設定ファイルを
+  足すのは、自動検出で足りない特殊要件がある時だけ。
+- **`PGRST303`（JWT issued at future）は時計のズレが原因**。キーやコードの
+  問題に見えるが、実体はサーバー時刻とトークンの発行時刻の相対的なズレ。
+  「少し待つ」「NTP同期を確認」で直ることが多く、いきなりキー再発行に
+  走らなくてよい。エラーコードを鵜呑みにせず「何と何の時刻を比較して
+  弾いているのか」を理解すると対処の順番を間違えない。
+- 環境変数の一覧を「記憶やメモ」ではなく`grep`でコードから確定させると、
+  「実はもう使っていない変数」「テンプレートには無いが参照している変数」の
+  取りこぼしが無くなる。今回は`lib/env.ts`に集約する規約のおかげで
+  一覧化が一瞬で済んだ＝フェーズ0の設計判断が効いた。
+
+これでフェーズ13（本番デプロイ）は完了。**アプリが常時起動の固定URLで
+本物のLINEを通して動く状態になった**。
+
+### 次回（教材Step4の納品物・この順番で）
+
+1. **セットアップ手順書**: 別のオーナーが同じ構成を1から立ち上げられる手順
+   （Supabaseプロジェクト作成 → マイグレーション適用 → LINEチャネル作成 →
+   Vercelデプロイ → 環境変数設定 → Webhook URL登録）。
+2. **オーナー向け運用マニュアル**: 管理画面の使い方（FAQ・メニュー編集、
+   会話ログの見方、「要対応」通知が来たときの対応、一斉配信の使い方と注意）。
+3. **README.mdの差し替え**: 現在は`create-next-app`の雛形のまま。プロジェクトの
+   概要・構成・ローカル開発手順・上記2つの手順書へのリンクに書き換える。
+
+（本番デプロイ後も未対応のまま持ち越し）
+
+- 会話ログ・配信履歴のページネーション（件数が増えてきたら）。
+- 統合テストで見つかった①空メッセージへの無反応・②絵文字だけのメッセージで
+  confidence高め、の2点（実データでの運用状況を見てから判断）。
