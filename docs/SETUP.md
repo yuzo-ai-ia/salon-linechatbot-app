@@ -1,7 +1,8 @@
 # セットアップ手順書
 
-> **この文書は作成中です。** 1〜5章（Supabase・OpenAI まで）を記載しています。
-> 6章以降（LINE / ローカル確認 / 本番デプロイ / トラブルシューティング）は次回追記します。
+このアプリと同じ構成を1から立ち上げるための手順書です。Supabase・OpenAI・LINE の
+セットアップ（4〜6章）→ ローカルで動作確認（7章）→ Vercel へ本番デプロイ（8章）まで
+順番に進めます。うまくいかないときは9章（トラブルシューティング）を参照してください。
 
 ---
 
@@ -205,38 +206,449 @@ OpenAI のダッシュボードで API キー（`sk-...`）を1つ発行し、�
 
 ## 6. LINE Messaging API のセットアップ
 
-> 次回追記予定。プロバイダー / チャネル作成 → `LINE_CHANNEL_SECRET` /
-> `LINE_CHANNEL_ACCESS_TOKEN` の取得 → 応答設定（「応答メッセージ」オフ・
-> 「Webhook の利用」オン）→ 自分の LINE user id（`LINE_TEST_USER_ID`）の調べ方。
+ここでやるのは「チャネルを作る」「2つのキーを取る」「応答設定を切り替える」の3つです。
+**Webhook URL の登録はここではやりません**（URL が環境ごとに変わるため、ローカルは
+7章、本番は8章で登録します）。
+
+### 6.1 プロバイダーとチャネルの作成
+
+[LINE Developers Console](https://developers.line.biz/console/) にログインし、
+プロバイダー（提供者のくくり）を1つ作成 → その中に **Messaging API チャネル**を
+1つ作成します。チャネルがこの bot 用の LINE 公式アカウントの実体になります。
+
+> **プロバイダーとチャネルの関係**: プロバイダーは「開発者・組織」の単位、
+> チャネルは「1つの公式アカウント（bot）」の単位です。個人サロン1店舗なら
+> プロバイダー1・チャネル1で十分です。
+
+### 6.2 キーの取得（2種類）
+
+このアプリが使う LINE のキーは2つです。**用途が別**なので取り違えないでください
+（DEVLOG のフェーズ2レビューで、この2つを混同したことが原因の不具合が実際に出ました）。
+
+| 環境変数                    | Console 上の場所                                            | 用途                                                |
+| --------------------------- | ----------------------------------------------------------- | --------------------------------------------------- |
+| `LINE_CHANNEL_SECRET`       | チャネル基本設定（Basic settings）→「チャネルシークレット」 | webhook の**署名検証**（`x-line-signature` の照合） |
+| `LINE_CHANNEL_ACCESS_TOKEN` | Messaging API タブ →「チャネルアクセストークン」を発行      | LINE への**送信**（返信・要対応通知・一斉配信）     |
+
+- アクセストークンは「長期のチャネルアクセストークン（long-lived）」を発行して
+  その文字列をそのまま使います。
+- **どちらもサーバー専用**です。`NEXT_PUBLIC_` は絶対に付けません（付けるとブラウザに
+  漏れ、誰でも公式アカウントとして送信できてしまいます）。
+- 値は次章でまとめて `.env.local` に記入するので、ここでは控えておくだけで OK です。
+
+### 6.3 応答設定の切り替え
+
+LINE 公式アカウントは初期状態だと「送られたメッセージに定型文を自動返信する」
+モードになっています。このアプリが返信を担当するので、その自動返信をオフにして
+webhook をオンにします。
+
+Console のチャネル → Messaging API 設定、または
+[LINE Official Account Manager](https://manager.line.biz/) の「応答設定」で:
+
+| 項目               | 設定     | 理由                                                             |
+| ------------------ | -------- | ---------------------------------------------------------------- |
+| 応答メッセージ     | **オフ** | オンのままだと LINE の定型文とこのアプリの返信が二重で届く       |
+| Webhook            | **オン** | オフだとメッセージがこのアプリに転送されない                     |
+| あいさつメッセージ | 任意     | 友だち追加時のメッセージ。使っても問題ない（このアプリは未使用） |
+
+### 6.4 `LINE_TEST_USER_ID`（任意）の調べ方
+
+`LINE_TEST_USER_ID` は**オーナー自身の LINE user id**（`U` で始まる文字列）で、
+設定すると次の2つが有効になります。
+
+- `/admin/broadcasts`（一斉配信画面）に「テスト送信（自分にだけ届く）」ボタンが出る
+- 自動で答えきれない問い合わせ（`needs_human`）が来たとき、この LINE に通知が届く
+
+user id は Console には表示されないので、**一度 bot にメッセージを送って、
+その会話ログから拾います**。手順は 7章／8章で bot が動いたあとになります:
+
+1. スマホで公式アカウントを友だち追加し、何かメッセージを送る
+2. `/admin/conversations`（ログ画面）を開く
+3. その行に表示されている `line_user_id`（`U...`）をコピーして `LINE_TEST_USER_ID` に設定
+
+任意項目なので、未設定のまま先に進んでも構いません（テスト送信ボタンが出ず、
+要対応通知が届かないだけで、返信機能そのものは動きます）。
 
 ---
 
 ## 7. ローカルで動作確認
 
-> 次回追記予定。`.env.local` の作成（`.env.local.example` をコピー）→
-> `npm run dev` → `/` の疎通確認・`/admin/login` → `npm run try:answer` /
-> `npm run try:webhook` → （任意）ngrok での LINE 実機テスト。
+本番に載せる前に、まず手元（ローカル）でひととおり動かします。
+ここで問題を潰しておくと、本番で不具合が出たときに「コードが悪いのか、本番環境の
+設定が悪いのか」の切り分けが楽になります。
+
+### 7.1 `.env.local` の作成
+
+テンプレートをコピーして、4〜6章で控えた値を記入します。
+
+```bash
+cp .env.local.example .env.local
+```
+
+記入するのは**必須7個**です（`.env.local` はコミットしません。`.gitignore` 済み）。
+
+| 変数                                   | 出どころ        |
+| -------------------------------------- | --------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`             | 4.3（Supabase） |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | 4.3（Supabase） |
+| `SUPABASE_SECRET_KEY`                  | 4.3（Supabase） |
+| `OPENAI_API_KEY`                       | 5.1（OpenAI）   |
+| `LINE_CHANNEL_ACCESS_TOKEN`            | 6.2（LINE）     |
+| `LINE_CHANNEL_SECRET`                  | 6.2（LINE）     |
+| `ADMIN_PASSWORD`                       | 自分で決める    |
+
+- `ADMIN_PASSWORD` は管理画面（`/admin`）のログインパスワードです。ローカル用は
+  任意の値でよいですが、**本番では別の値にします**（理由は 8.3）。
+- `OPENAI_MODEL` / `LINE_TEST_USER_ID` / `APP_URL` は任意なので空のままで OK です。
+- 各変数の意味は [`README.md` の「環境変数」表](../README.md#環境変数) にまとまっています。
+
+### 7.2 起動と疎通確認
+
+```bash
+npm run dev
+```
+
+<http://localhost:3000> を開いて **「Supabase 接続成功 / faq テーブル: N 件」** と
+表示されれば、DB への接続は OK です（`N` は 4.4 のサンプルデータを入れていれば 10、
+入れていなければ 0）。
+
+ここでエラーが出る場合は Supabase の URL / キーの記入ミスか、マイグレーション
+（4.2）の未適用がほとんどです（→ 9章）。
+
+### 7.3 管理画面のログイン
+
+<http://localhost:3000/admin/login> を開き、`ADMIN_PASSWORD` でログインします。
+ログイン後、上部に **FAQ管理 / メニュー管理 / ログ / 配信** の4タブが並び、
+それぞれ開ければ OK です。
+
+未ログインのまま <http://localhost:3000/admin/faq> に直接アクセスすると
+`/admin/login` にリダイレクトされます（`proxy.ts` のガードが効いていることの確認）。
+
+### 7.4 回答生成だけを確認する（LINE 不要）
+
+LINE を経由せず、「問い合わせ文 → 回答文の生成」だけを手元で試せます。
+
+```bash
+npm run try:answer -- "営業時間を教えてください"
+```
+
+`{ answer, confidence, needsHuman }` の形で結果が返ります。知識ベース（FAQ・メニュー）に
+情報がない質問を投げると `confidence` が低くなり `needsHuman: true` になります。
+
+```bash
+npm run try:answer -- "宇宙旅行のプランはありますか？"
+```
+
+> **`--conditions=react-server` について**: `npm run try:answer` の実体は
+> `tsx --conditions=react-server --env-file=.env.local ...` です。このアプリの
+> サーバー専用モジュールには `server-only` というガードが入っており、素の tsx から
+> 読むと誤検知で落ちます。npm script 側でこのフラグを付けて回避済みなので、
+> 上記コマンドをそのまま使えば問題ありません（詳細は DEVLOG フェーズ1）。
+
+### 7.5 webhook を通しで確認する（LINE 不要）
+
+「署名検証 → イベント処理 → 回答生成 → `conversations` への保存」までを、
+LINE 実機なしで通します。
+
+```bash
+npm run try:webhook -- "カットの料金は？"
+```
+
+正常なら **200** が返り、`conversations` テーブルに1行保存されます。
+署名検証の失敗（401）も確認できます:
+
+```bash
+npm run try:webhook -- --bad-signature "テスト"
+```
+
+> **reply API が 401 になるのは想定内です**。このスクリプトが送る `replyToken` は
+> ダミー値（LINE 実機を経由していないため）なので、LINE 側の返信 API は正しく
+> 拒否します。ここで確認したいのは「署名検証 → 生成 → DB 保存」が通ることで、
+> そこは 200・回答生成・保存まで確認できます。実際の返信は 7.6 か 8章で確認します。
+
+### 7.6 （任意）ngrok で LINE 実機テスト
+
+本物の LINE から返信まで確認したい場合は、`next dev`（localhost:3000）を
+トンネルで一時的に公開して、LINE の Webhook URL に登録します。
+
+```bash
+ngrok http 3000
+```
+
+1. 発行された `https://xxxx.ngrok-free.dev` を控える
+2. LINE Developers Console のチャネル → Messaging API 設定 → **Webhook URL** に
+   `https://xxxx.ngrok-free.dev/api/line/webhook` を登録
+3. 「検証」ボタンを押して **Success** になることを確認
+4. スマホで公式アカウントを友だち追加 → 「営業時間を教えてください」と送信 →
+   bot から返信が届けば OK
+5. このタイミングで `/admin/conversations` に自分の `line_user_id` が記録されるので、
+   6.4 の手順で `LINE_TEST_USER_ID` を取得できる
+
+> **ngrok の URL は一時的です**。無料枠だと起動のたびに URL が変わります。
+> 確認が終わったら ngrok を停止してください。常時起動・固定 URL の本番環境は
+> 8章（Vercel）で用意します。
 
 ---
 
 ## 8. 本番デプロイ（Vercel）
 
-> 次回追記予定。GitHub リポジトリ → Vercel Import → 環境変数を Production に登録
-> （`NEXT_PUBLIC_*` は最初のデプロイ前に全部／`ADMIN_PASSWORD` は本番専用の別値）
-> → デプロイ → `APP_URL` を設定して**再デプロイ**（env 追加だけでは反映されない）
-> → LINE Webhook URL を本番に切替 → 実機テスト。
+ローカルで 7章まで通ったら本番に載せます。ホスティングは Vercel、`main` ブランチに
+push すると自動でビルド・デプロイされる構成です。
+
+### 8.1 GitHub リポジトリ
+
+コードを GitHub のリポジトリに push しておきます。会話ログ（顧客のメッセージ本文と
+LINE user id）を扱うアプリなので、**リポジトリは Private** にしてください。
+
+> `.env.local` がコミットされていないことを push 前に確認します
+> （`git check-ignore -v .env.local` で無視対象と出れば OK）。
+
+### 8.2 Vercel へ Import
+
+Vercel で「Add New… → Project」から GitHub リポジトリを Import します。
+
+- **`vercel.json` は不要**です。Vercel が Next.js を自動検出し、ビルド・出力・
+  インストール（`package-lock.json` があるので `npm ci`）まで自動設定します。
+- `next.config.ts` も空のままで構いません。
+- `proxy.ts`（管理画面のガード）は Vercel 上で Node.js ランタイム固定で動くため、
+  `node:crypto` を使っている箇所もそのまま動きます。
+
+**この時点ではまだデプロイを実行しません**（先に環境変数を登録します。8.3）。
+
+### 8.3 環境変数を Production に登録
+
+Vercel の **Project Settings → Environment Variables** で、対象環境を
+**Production** にして登録します。
+
+| 変数                                   | 必須 | 補足                               |
+| -------------------------------------- | ---- | ---------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`             | 必須 | 4.3                                |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | 必須 | 4.3                                |
+| `SUPABASE_SECRET_KEY`                  | 必須 | 4.3                                |
+| `OPENAI_API_KEY`                       | 必須 | 5.1                                |
+| `LINE_CHANNEL_ACCESS_TOKEN`            | 必須 | 6.2                                |
+| `LINE_CHANNEL_SECRET`                  | 必須 | 6.2                                |
+| `ADMIN_PASSWORD`                       | 必須 | **本番専用の別の値**にする（下記） |
+| `OPENAI_MODEL`                         | 任意 | 未設定なら `gpt-4o-mini`           |
+| `LINE_TEST_USER_ID`                    | 任意 | 8.6 の実機テスト後に登録（下記）   |
+| `APP_URL`                              | 任意 | 8.5 で登録（下記）                 |
+
+いくつか注意点があります。
+
+- **`NEXT_PUBLIC_*` はビルド時に JS バンドルへ焼き込まれます**。あとから値を変えても
+  再ビルドしない限り本番に反映されません。**最初のデプロイ前に必須変数を全部
+  登録**しておけば問題ありませんが、この性質は知らないとハマります（→ 9章）。
+- **`ADMIN_PASSWORD` は本番用に新しい値**にします。管理画面のセッションは DB を
+  持たない署名 Cookie 方式で、万一パスワードが漏れても有効期限（7日）まで
+  無効化できません。開発用と使い回さないでください（DEVLOG フェーズ8）。
+- **Supabase は本番用に新しいプロジェクトを作るのを推奨**します。本番と開発で
+  データを分けられ、会話ログに開発中のテストデータが混ざりません。新規に作った
+  場合は、4章のマイグレーション（と、必要なら 4.4 の seed）をその本番プロジェクトにも
+  適用し、4.3 のキーも本番プロジェクトのものに差し替えます。
+  - 学習・検証目的でデータも少ないうちは、開発用プロジェクトをそのまま本番でも
+    使うこともできます（会話ログの混在は許容する前提。このリポジトリの開発時は
+    そうしていました — DEVLOG フェーズ13）。
+
+### 8.4 デプロイと確認
+
+環境変数を登録したらデプロイを実行します。完了したら発行された本番 URL
+（`https://<プロジェクト名>.vercel.app`）で確認します。
+
+- `/` → 「Supabase 接続成功 / faq テーブル: N 件」
+- `/admin/login` → 本番の `ADMIN_PASSWORD` でログインできる
+- 未ログインで `/admin/faq` に直アクセス → `/admin/login` にリダイレクトされる
+
+### 8.5 `APP_URL` を設定して再デプロイ
+
+本番 URL が確定したので、`APP_URL` に設定します。
+
+1. Environment Variables（Production）に `APP_URL = https://<発行された本番 URL>` を追加
+   （末尾の `/` は不要）
+2. **Deployments から Redeploy を実行**する
+
+> **env を追加しただけでは反映されません**。`APP_URL` はビルド時に読まれる値なので、
+> 追加後に再デプロイ（Redeploy）が必要です。設定すると、要対応通知の本文に
+> `/admin/conversations` へのタップ可能なリンクが入るようになります
+> （DEVLOG フェーズ13 で実際にここでハマりました）。
+
+### 8.6 LINE Webhook URL を本番に切り替え
+
+LINE Developers Console のチャネル → Messaging API 設定 → **Webhook URL** を
+本番のものに変更します。
+
+```
+https://<本番 URL>/api/line/webhook
+```
+
+「検証」ボタンで **Success** を確認したら、スマホから実機テストします。
+
+- 通常の質問（「営業時間を教えてください」）→ bot から返信が届く
+- 自動で答えられない質問（例:「宇宙旅行のプランはありますか？」）→ 返信が届き、
+  かつ（`LINE_TEST_USER_ID` 設定済みなら）オーナーの LINE に要対応通知が届く
+
+### 8.7 `LINE_TEST_USER_ID` の登録
+
+まだ設定していなければ、8.6 の実機テストで `/admin/conversations` に残った
+自分の `line_user_id` を Environment Variables（Production）に
+`LINE_TEST_USER_ID` として登録し、**Redeploy** します。これでテスト送信ボタンと
+要対応通知が本番でも有効になります。
+
+### 8.8 （任意）独自ドメイン
+
+`*.vercel.app` ではなく独自ドメインを使う場合は、Vercel の **Domains** で設定します。
+その際、`APP_URL` と LINE の Webhook URL も新しいドメインに合わせて更新し、
+Redeploy してください。
 
 ---
 
 ## 9. トラブルシューティング
 
-> 次回追記予定。`JWT issued at future`（`PGRST303`）= 時計のズレ／
-> `42501 permission denied` = GRANT 未適用／webhook は 200 なのに返信が来ない／
-> 署名検証 401 = Channel secret の取り違え／`NEXT_PUBLIC_*` の変更は再デプロイが必要。
+構築中に実際に起きた／起きやすいものを挙げます。エラーコードだけで判断せず、
+「何が原因で弾かれているか」を理解すると対処の順番を間違えません。
+
+### 9.1 `JWT issued at future`（`code: PGRST303`）で回答生成が失敗する
+
+本番デプロイ直後、webhook の初回で `generateFaqAnswer` がこのエラーで落ちることが
+あります（DEVLOG フェーズ13 で発生）。
+
+- **原因**: **環境の時計のズレ**。Supabase のキー（JWT）に含まれる発行時刻（iat）が、
+  検証する側（サーバー）の現在時刻より「未来」に見えると、PostgREST が
+  「まだ有効になっていないトークン」として弾きます。キーやコードの問題に見えて、
+  実体はサーバー時刻とトークン発行時刻の相対的なズレです。
+- **対処（この順番で）**:
+  1. **数分待つ**。時刻同期が追いつくと自然に直ることが多いです。
+  2. 作業マシンの時刻自動設定を確認（macOS なら「システム設定 → 一般 → 日付と時刻 →
+     時刻を自動的に設定」をオン。NTP 同期でズレを直す）。
+  3. それでも直らなければ Supabase Studio で API キー（Secret / Publishable）を
+     **再発行**し、Vercel の環境変数を更新して Redeploy。
+- **やってはいけないこと**: いきなりキー再発行から始める。まず「待つ」「時刻確認」です。
+
+### 9.2 `42501 permission denied`（3テーブルすべてで発生）
+
+`/` の疎通確認や webhook で、`faq` / `menus` / `conversations` すべてに対して
+権限エラーが出る。
+
+- **原因**: `20260903_init_schema.sql` の `grant` / `revoke` が適用されていない。
+  Supabase の「新規テーブルへの自動権限付与」は Studio 経由のテーブル作成では
+  発火しないことがあり、その場合テーブルはできても権限が付きません
+  （RLS と GRANT は別レイヤー — 詳細は DEVLOG フェーズ0続き）。
+- **対処**: マイグレーション SQL を**一部だけ抜き出さず、ファイルの中身を全文**
+  SQL Editor で実行し直す。`grant` / `revoke` の行まで含めて流します。
+
+### 9.3 LINE の「検証」は成功するのに、実際に送っても返信が来ない
+
+Webhook URL の「検証」ボタンは Success なのに、スマホから送っても無反応。
+
+- **原因の候補**:
+  - 「応答メッセージ」がオフになっていない（LINE の定型文が優先されている）
+  - 「Webhook の利用」がオフ
+  - `LINE_CHANNEL_ACCESS_TOKEN` が失効している／別チャネルの値になっている
+- **対処**: 6.3 の応答設定を見直す。次に、Vercel（またはローカル dev）のログに
+  reply API の失敗ログが出ていないか確認する（アクセストークン起因ならここに出ます）。
+
+### 9.4 署名検証が常に 401 になる
+
+正しい LINE からの webhook のはずが `try:webhook` でなく実機でも 401。
+
+- **原因**: `LINE_CHANNEL_SECRET` の値が違う。アクセストークンと混同しているか、
+  別チャネルのシークレットを入れています。
+- **対処**: チャネル基本設定の「チャネルシークレット」を取り直して差し替える。
+  署名検証は secret、送信は access token と、使う場面が完全に別です（6.2）。
+
+### 9.5 `NEXT_PUBLIC_*` を変えたのに本番に反映されない
+
+Vercel で `NEXT_PUBLIC_SUPABASE_URL` などを直したのに、本番の挙動が変わらない。
+
+- **原因**: `NEXT_PUBLIC_*` はビルド時に JS バンドルへ焼き込まれます。環境変数の
+  保存だけでは反映されません（`APP_URL` も同様にビルド時に読まれます）。
+- **対処**: Vercel の Deployments から **Redeploy** する。
+
+### 9.6 `/` が「接続失敗」になる
+
+- **原因**: Supabase の URL / キーの記入ミス、またはマイグレーション（4.2）の未適用。
+- **対処**: `.env.local`（ローカル）／ Vercel の環境変数（本番）を見直し、
+  4.2 のマイグレーションが全部通っているか Supabase Studio で確認する。
+
+### 9.7 OpenAI が `insufficient_quota` などで失敗する
+
+- **原因**: OpenAI の支払い方法が未登録、または残高切れ。
+- **対処**: OpenAI ダッシュボードで課金設定を済ませる（3.1・5.1）。
+  使いすぎ防止に月間の上限額を低めに設定しておくと安心です。
+
+### 9.8 ローカルで `.env.local` を編集したのに反映されない
+
+- **原因**: `npm run dev` は起動時に環境変数を読み込みます。
+- **対処**: dev サーバーを再起動する（`Ctrl+C` → `npm run dev`）。
+
+### 9.9 `try:answer` / `try:webhook` が `server-only` エラーで即落ちする
+
+```
+Error: This module cannot be imported from a Client Component module.
+```
+
+- **原因**: `server-only` ガードの誤検知。素の tsx / node から実行すると起きます。
+- **対処**: `npm run try:answer` / `npm run try:webhook` を使う（npm script 側で
+  `tsx --conditions=react-server` を指定済み）。直接 `tsx scripts/...` を叩かない。
 
 ---
 
 ## 10. 付録
 
-> 次回追記予定。環境変数リファレンス（README の表へリンク）／マイグレーション一覧と
-> 適用順／参考にする DEVLOG のフェーズ。
+### 10.1 環境変数リファレンス
+
+各変数の役割・必須/任意・公開可否の一覧は
+[`README.md` の「環境変数」表](../README.md#環境変数) にまとまっています。
+テンプレートは `.env.local.example`。
+
+> **実際の値（キー・トークン・パスワード）は、この手順書にも `README.md` にも
+> リポジトリにも一切書きません。** `.env.local` と Vercel の Environment Variables
+> にだけ持たせます。
+
+### 10.2 マイグレーション一覧と適用順
+
+Supabase Studio の SQL Editor で、**ファイル名の日付順に、1つずつ全文**実行します
+（4.2 参照）。
+
+| 順  | ファイル                                        | 内容                                                                                               |
+| --- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1   | `20260903_init_schema.sql`                      | `faq` / `menus` / `conversations` の3テーブル。RLS・インデックス・コメント・権限（GRANT / REVOKE） |
+| 2   | `20260905_add_needs_human_to_conversations.sql` | `conversations` に `needs_human`（要対応フラグ）カラムを追加                                       |
+| 3   | `20260906_create_broadcasts.sql`                | お知らせ一斉配信の履歴を保存する `broadcasts` テーブル                                             |
+
+`supabase/seed/sample_data.sql` は**マイグレーションではありません**（開発用の
+使い捨てサンプルデータ。再実行すると全削除 → 入れ直し）。投入は任意です（4.4）。
+
+### 10.3 動作確認スクリプト早見表
+
+LINE 実機なしで挙動を確認できます（`.env.local` を読み込みます）。
+
+| コマンド                                          | 確認できること                                                   |
+| ------------------------------------------------- | ---------------------------------------------------------------- |
+| `npm run try:answer -- "質問文"`                  | 問い合わせ文 → 回答生成（`{ answer, confidence, needsHuman }`）  |
+| `npm run try:webhook -- "質問文"`                 | 署名検証 → イベント処理 → 回答生成 → `conversations` 保存（200） |
+| `npm run try:webhook -- --bad-signature "質問文"` | 署名検証の失敗（401）                                            |
+
+いずれも実体は `tsx --conditions=react-server --env-file=.env.local scripts/*.ts` です
+（`--conditions` の意味は 7.4 の補足、または DEVLOG フェーズ1）。
+
+### 10.4 関連する DEVLOG のフェーズ
+
+設計判断やハマりどころの詳細は [`DEVLOG.md`](../DEVLOG.md) に記録しています。
+
+| フェーズ              | 参照したい場面                                                                  |
+| --------------------- | ------------------------------------------------------------------------------- |
+| フェーズ0 / 0（続き） | Supabase の RLS と GRANT の違い、`42501 permission denied` の原因（9.2）        |
+| フェーズ2             | LINE webhook の署名検証、ngrok での実機テスト（7.6）                            |
+| フェーズ8             | 管理画面の認証（署名 Cookie 方式）と `ADMIN_PASSWORD` を本番で分ける理由（8.3） |
+| フェーズ12（続き）    | `APP_URL` と要対応通知のリンク（8.5）                                           |
+| フェーズ13            | Vercel 本番デプロイ、`PGRST303`（9.1）、`NEXT_PUBLIC_*` の焼き込み（9.5）       |
+
+### 10.5 ディレクトリ構成
+
+コードの置き場所は [`README.md` の「ディレクトリ構成」表](../README.md#ディレクトリ構成)
+を参照してください。この手順書で触れた主なパス:
+
+- `supabase/migrations/` — マイグレーション SQL（10.2）
+- `scripts/` — 動作確認スクリプト（10.3）
+- `lib/env.ts` — 環境変数の読み込み口（すべてここ経由）
+- `proxy.ts` — `/admin/*` のログインガード（7.3・8.2）
