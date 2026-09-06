@@ -1665,3 +1665,15 @@ Vercel + GitHub連携で常時起動・固定URLの本番環境に載せた。Pl
 ## フェーズ16: SETUP.md 6〜10章 執筆、セットアップ手順書 完成（2026-09-07）
 
 フェーズ15の続き。`docs/SETUP.md` の残り6〜10章を章ごとに確認しながら執筆し、セットアップ手順書を完成させた。6章=LINE Messaging API（チャネル作成・キー2種の使い分け・応答設定・`LINE_TEST_USER_ID`の調べ方）、7章=ローカル動作確認（`.env.local`作成・`npm run dev`疎通・`try:answer`/`try:webhook`・任意でngrok実機）、8章=Vercel本番デプロイ（env登録・`NEXT_PUBLIC_*`はビルド時焼き込みで最初に全部・`ADMIN_PASSWORD`は本番別値・Supabaseは本番用に新規プロジェクト推奨＋流用も注記・`APP_URL`設定後はRedeploy必須・Webhook URL切替）、9章=トラブルシューティング9項目（`PGRST303`=時計ズレは「待つ→NTP確認→キー再発行」の順、`42501`=GRANT未適用でSQL全文再実行、検証成功なのに返信来ない、署名401、`NEXT_PUBLIC_*`未反映、等）、10章=付録（環境変数はREADMEへリンク・マイグレーション適用順・スクリプト早見表・関連DEVLOGフェーズ）。フェーズ13で実際にハマった「APP_URLはenv追加だけでは反映されずRedeploy必要」「PGRST303=環境の時計のズレ（キー・コードの問題ではない）」を手順とトラブルシューティングに反映済み。冒頭の「作成中」バナーを削除。コミット前チェックとして`docs/SETUP.md`を`sk-`/`sb_secret_`/`sb_publishable_`/`eyJ`/`U<32hex>`でgrep→実キーの混入なし（プレースホルダ`sb_publishable_...`表記のみ）、`git diff --name-only`で変更が`docs/SETUP.md`のみであることを確認。既存1〜5章との環境変数名の一致（10種すべてREADMEの表と突き合わせ）・章節番号の連番・相対リンクの妥当性も目視確認。学び: 手順書に載せる「ハマりどころ」は、エラーコードそのものではなく「何と何を比較して弾いているか」（`PGRST303`ならトークンの発行時刻とサーバー時刻）まで書くと、読者が対処の順番（いきなりキー再発行しない）を間違えなくなる。次回は教材Step4の残り2点=技術ドキュメント（API仕様・DB設計・連携図を既存資料から集約）とオーナー向け運用マニュアル。
+
+---
+
+## フェーズ17: 技術ドキュメント（docs/ARCHITECTURE.md）作成（2026-09-07）
+
+教材Step4の納品ドキュメント3種（セットアップ手順書・技術ドキュメント・オーナー向け運用マニュアル）のうち2種目。`docs/ARCHITECTURE.md` を新規作成し、Step4納品ドキュメントは SETUP・ARCHITECTURE の2種が完成（残りはオーナー向け運用マニュアル）。
+
+方針は「ゼロから書かず既存の実装・ドキュメントを集約する」。Plan Modeで構成（1〜7章）と方針（1ファイル・図はASCIIで既存文書と統一）を合意し、章ごとに確認しながら執筆。構成: 1=この文書について（対象読者・載せないもの・関連ドキュメント）、2=アーキテクチャ全体像（構成図＋リクエストの流れをASCIIで、`SETUP.md`2章・`README`「処理の流れ」を拡張／技術スタックは`package.json`の実バージョン／`lib/`の層構成）、3=外部サービス連携（LINE=署名検証`HMAC-SHA256(生ボディ,CHANNEL_SECRET)`・送信3関数reply/push/broadcast・5000字の扱い／Supabase=Publishable/Secretの2経路・RLSとGRANTは別レイヤー／OpenAI=`gpt-4o-mini`・`temperature 0.3`・`json_object`・知識ベース全件投入・`throw`せずFALLBACK／Vercel）、4=API仕様（`POST /api/line/webhook`の処理順と401/400/200・`handleEvent`条件／管理画面の署名Cookie認証`<期限>.<HMAC>`と2層ガード／Server Actions全12個の表／横断エラー方針）、5=DB設計（4テーブルは外部キーなしで独立・各カラム表・RLS/GRANT・`set_updated_at()`・マイグレーション一覧）、6=設計上の既知の割り切り9項目（webhookインラインawait・ページネーションなし・会話ログ保持期間未定・confidence自己申告・ベクトル検索なし等、各DEVLOGフェーズにリンク）、7=環境変数（`lib/env.ts`の用途別関数8個・公開/サーバー専用の別・実値はリポジトリに置かない）。
+
+コミット前チェック: `docs/ARCHITECTURE.md`を`sk-`/`sb_secret_`/`sb_publishable_`/`eyJ`/`U<hex>`でgrep→実キー・トークン・パスワードの混入なし（`U...`のヒットは本文中の「Unauthorized」のみ）。2.3の技術スタックのバージョンを`package.json`と突き合わせ→Next.js 16.3.4 / React 19.2.8 / OpenAI SDK 7.x / supabase-js 2.x すべて一致。`git status`で新規追加が`docs/ARCHITECTURE.md`のみであることを確認。環境変数名10種がREADMEの表と一致・章節番号の連番・相対リンク（`../README.md`/`./SETUP.md`/`../DEVLOG.md`/`../AGENTS.md`）の妥当性も目視確認。
+
+学び: 「既存資料の集約」でも、コードのコメントとDEVLOGに散っている「意図的な割り切り」を1か所の表にまとめる作業（6章）は価値が高い。個々のファイルを読んでいる時は気づきにくい「この設計は暫定で、規模が変わったら見直す」という判断が、横断して並べると全体像として見える。次回はStep4最後のオーナー向け運用マニュアル（スマホで読める・専門用語なし・画面キャプチャの位置を明示）。
