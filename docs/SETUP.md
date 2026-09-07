@@ -43,6 +43,8 @@
 ### 関連ドキュメント
 
 - [`README.md`](../README.md) — プロジェクト概要・技術構成・環境変数リファレンス
+- [`docs/ARCHITECTURE.md`](./ARCHITECTURE.md) — API 仕様・DB 設計・外部サービス連携の技術リファレンス
+- [`docs/OPERATIONS.md`](./OPERATIONS.md) — オーナー向け運用マニュアル（管理画面の操作手順・スマホ前提・非エンジニア向け）
 - [`DEVLOG.md`](../DEVLOG.md) — フェーズ単位の開発記録（設計判断・ハマりどころの詳細）
 
 ---
